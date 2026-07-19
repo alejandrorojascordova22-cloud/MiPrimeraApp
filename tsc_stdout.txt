@@ -1,0 +1,3 @@
+app/codigo-qr.tsx(188,37): error TS2339: Property 'shadow' does not exist on type '{ container: { flex: number; backgroundColor: string; }; header: { height: number; justifyContent: "center"; alignItems: "center"; paddingTop: number; }; headerText: { color: string; fontSize: number; fontWeight: "500"; }; ... 21 more ...; buttonText: { ...; }; }'.
+app/perfil-aspirante.tsx(415,7): error TS2322: Type '"#0F6E56"' is not assignable to type '"#8A8F98"'.
+app/perfil-aspirante.tsx(418,7): error TS2322: Type 'string' is not assignable to type '"#8A8F98"'.

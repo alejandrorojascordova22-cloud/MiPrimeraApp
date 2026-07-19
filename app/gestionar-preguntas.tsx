@@ -1,0 +1,2711 @@
+import { ColoresApp } from "@/constants/coloresApp";
+import { obtenerCarreras } from "@/services/carrerasServicio";
+import {
+  actualizarExamen,
+  agregarPreguntasBloque,
+  crearExamen,
+  eliminarExamen,
+  eliminarPregunta,
+  obtenerTodasPreguntas,
+  reemplazarPreguntasDeExamen,
+  vincularCarrerasAExamen,
+} from "@/services/preguntasExamenesServicio";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { Stack } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+
+// --- PALETA COMPLEMENTARIA (acentos que no existen aún en ColoresApp) ---
+const ACCENT = {
+  primario: "#2563EB",
+  primarioOscuro: "#1D4ED8",
+  primarioFondo: "#EFF4FF",
+  primarioFondoFuerte: "#E1EAFF",
+  borde: "#E4E7EC",
+  bordeSuave: "#EEF1F5",
+  texto: "#101828",
+  textoSecundario: "#667085",
+  textoTenue: "#98A2B3",
+  fondo: "#F7F9FC",
+  error: "#BA1A1A",
+  errorFondo: "#FEF2F2",
+  exito: "#16A34A",
+};
+
+// Punto de quiebre a partir del cual mostramos el layout de 3 columnas
+// (escritorio). Por debajo de esto, todo se apila verticalmente para que
+// funcione bien en teléfonos.
+const BREAKPOINT_ESCRITORIO = 980;
+
+// --- TIPOS ---
+type CarreraRef = { id: number; nombre: string };
+
+type TipoPregunta = "Opción múltiple" | "Abierta" | "Imagen" | "Audio";
+
+type Pregunta = {
+  id: number;
+  examen_id: number;
+  pregunta: string;
+  tipo: TipoPregunta;
+  opcion_a?: string;
+  opcion_b?: string;
+  opcion_c?: string;
+  opcion_d?: string;
+  respuesta_correcta?: string | null;
+  materia: string;
+  seccion: string;
+  duracion_examen: number;
+  carreras: CarreraRef[];
+  modo_calificacion: "inmediato" | "programado";
+  fecha_publicacion: string | null;
+};
+
+type OpcionEnEdicion = {
+  letra: string;
+  texto: string;
+};
+
+type PreguntaEnEdicion = {
+  localId: string;
+  id?: number; // si ya existe en BD
+  texto: string;
+  opciones: OpcionEnEdicion[];
+  respuestaCorrecta: string; // letra
+  obligatoria: boolean;
+  puntaje: string;
+};
+
+// --- COMPONENTES REUTILIZABLES (pantalla principal) ---
+
+const StatChip = ({
+  icon,
+  value,
+  label,
+  color,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  value: string;
+  label: string;
+  color: string;
+}) => (
+  <View style={styles.statChip}>
+    <View style={styles.statChipIconWrap}>
+      <Ionicons name={icon} color={color} size={16} />
+    </View>
+    <View style={{ marginLeft: 8 }}>
+      <Text style={styles.statChipValue}>{value}</Text>
+      <Text style={styles.statChipLabel}>{label}</Text>
+    </View>
+  </View>
+);
+
+const FiltroChip = ({
+  label,
+  seleccionado,
+  onSelect,
+}: {
+  label: string;
+  seleccionado: boolean;
+  onSelect: () => void;
+}) => (
+  <Pressable
+    onPress={onSelect}
+    style={[styles.filtroChip, seleccionado && styles.filtroChipSeleccionado]}
+  >
+    <Text
+      style={[
+        styles.filtroChipTexto,
+        seleccionado && styles.filtroChipTextoSeleccionado,
+      ]}
+    >
+      {label}
+    </Text>
+  </Pressable>
+);
+
+const BloqueExamenExpandible = ({
+  grupo,
+  onEdit,
+  onDelete,
+  onDeleteBloque,
+}: {
+  grupo: any;
+  onEdit: () => void;
+  onDelete: (id: number) => void;
+  onDeleteBloque: () => void;
+}) => {
+  const [expandido, setExpandido] = useState(false);
+  const { materia, seccion, duracion_examen, carreras, preguntas } = grupo;
+
+  const subtitulo = [
+    `${preguntas.length} reactivo${preguntas.length === 1 ? "" : "s"}`,
+    duracion_examen && `${duracion_examen} min`,
+    carreras.join(", "),
+  ]
+    .filter(Boolean)
+    .join("  •  ");
+
+  return (
+    <View style={styles.bloqueContainer}>
+      <Pressable
+        style={styles.bloqueHeader}
+        onPress={() => setExpandido(!expandido)}
+      >
+        <View style={styles.bloqueIconWrap}>
+          <Ionicons
+            name="folder-open-outline"
+            size={18}
+            color={ACCENT.primario}
+          />
+        </View>
+        <View style={styles.bloqueHeaderText}>
+          <Text style={styles.bloqueTitle}>{`${materia} · ${seccion}`}</Text>
+          <Text style={styles.bloqueSubtitle} numberOfLines={1}>
+            {subtitulo}
+          </Text>
+        </View>
+        <Pressable onPress={onEdit} style={styles.actionButton} hitSlop={6}>
+          <Ionicons
+            name="create-outline"
+            size={18}
+            color={ACCENT.textoSecundario}
+          />
+        </Pressable>
+        <Pressable
+          onPress={onDeleteBloque}
+          style={styles.actionButton}
+          hitSlop={6}
+        >
+          <Ionicons name="trash-outline" size={18} color={ACCENT.error} />
+        </Pressable>
+        <View style={styles.chevronWrap}>
+          <Ionicons
+            name={expandido ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={ACCENT.textoSecundario}
+          />
+        </View>
+      </Pressable>
+      {expandido && (
+        <View style={styles.preguntasContainer}>
+          {preguntas.map((pregunta: Pregunta) => (
+            <TarjetaPregunta
+              key={pregunta.id}
+              pregunta={pregunta}
+              onDelete={onDelete}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+const TarjetaPregunta = ({
+  pregunta,
+  onDelete,
+}: {
+  pregunta: Pregunta;
+  onDelete: (id: number) => void;
+}) => (
+  <View style={styles.preguntaCard}>
+    <View style={{ flex: 1 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 6,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <View style={styles.idBadge}>
+          <Text style={styles.idBadgeText}>#{pregunta.id}</Text>
+        </View>
+        <View style={styles.tipoBadge}>
+          <Ionicons name="checkbox-outline" size={11} color={ACCENT.primario} />
+          <Text style={styles.tipoBadgeText}>{pregunta.tipo}</Text>
+        </View>
+      </View>
+      <Text style={styles.preguntaTexto} numberOfLines={2}>
+        {pregunta.pregunta}
+      </Text>
+    </View>
+    <Pressable
+      onPress={() => onDelete(pregunta.id)}
+      style={styles.actionButton}
+      hitSlop={6}
+    >
+      <Ionicons name="trash-outline" size={18} color={ACCENT.error} />
+    </Pressable>
+  </View>
+);
+
+function letraPorIndice(idx: number) {
+  return String.fromCharCode(65 + idx); // A, B, C, D, E...
+}
+
+function nuevaPreguntaVacia(): PreguntaEnEdicion {
+  return {
+    localId: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    texto: "",
+    opciones: [
+      { letra: "A", texto: "" },
+      { letra: "B", texto: "" },
+      { letra: "C", texto: "" },
+    ],
+    respuestaCorrecta: "A",
+    obligatoria: true,
+    puntaje: "1",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SELECTOR DE PREGUNTAS — columna izquierda "Preguntas"
+// ─────────────────────────────────────────────────────────────────────────
+const SelectorPreguntas = ({
+  preguntas,
+  activaIdx,
+  onSeleccionar,
+  onAgregar,
+  horizontal,
+}: {
+  preguntas: PreguntaEnEdicion[];
+  activaIdx: number;
+  onSeleccionar: (idx: number) => void;
+  onAgregar: () => void;
+  horizontal: boolean;
+}) => (
+  <View
+    style={[styles.selectorWrap, !horizontal && styles.selectorWrapColumna]}
+  >
+    <View style={styles.selectorHeader}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="list-outline" size={16} color={ACCENT.primario} />
+        <Text style={styles.selectorTitulo}>Preguntas</Text>
+      </View>
+      <View style={styles.contadorPreguntas}>
+        <Text style={styles.contadorPreguntasTexto}>
+          {preguntas.length} item{preguntas.length === 1 ? "" : "s"}
+        </Text>
+      </View>
+    </View>
+    <ScrollView
+      horizontal={horizontal}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={
+        horizontal
+          ? styles.selectorScrollHorizontal
+          : styles.selectorScrollVertical
+      }
+    >
+      {preguntas.map((p, idx) => {
+        const activa = idx === activaIdx;
+        const sinContenido = !p.texto.trim();
+        return (
+          <Pressable
+            key={p.localId}
+            onPress={() => onSeleccionar(idx)}
+            style={[
+              styles.selectorTab,
+              horizontal && styles.selectorTabHorizontal,
+              activa && styles.selectorTabActiva,
+            ]}
+          >
+            <Ionicons
+              name="reorder-three-outline"
+              size={14}
+              color={ACCENT.textoTenue}
+              style={{ marginRight: 4 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.selectorTabNumero,
+                  activa && styles.selectorTabNumeroActivo,
+                ]}
+              >
+                {String(idx + 1).padStart(2, "0")}
+              </Text>
+              <Text
+                style={[
+                  styles.selectorTabTexto,
+                  activa && styles.selectorTabTextoActivo,
+                  sinContenido && styles.selectorTabTextoVacio,
+                ]}
+                numberOfLines={2}
+              >
+                {sinContenido ? "Sin enunciado aún…" : p.texto}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+      <Pressable
+        onPress={onAgregar}
+        style={[
+          styles.selectorAgregar,
+          horizontal && styles.selectorAgregarHorizontal,
+        ]}
+      >
+        <Ionicons name="add-circle" size={18} color={ACCENT.primario} />
+        <Text style={styles.selectorAgregarTexto}>Añadir Pregunta</Text>
+      </Pressable>
+    </ScrollView>
+  </View>
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// CONFIGURACIÓN — resumen de tiempo estimado / dificultad
+// ─────────────────────────────────────────────────────────────────────────
+const PanelConfiguracion = ({
+  tiempoEstimado,
+  dificultad,
+}: {
+  tiempoEstimado: number;
+  dificultad: string;
+}) => (
+  <View style={styles.configPanel}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 10,
+      }}
+    >
+      <Ionicons
+        name="information-circle-outline"
+        size={15}
+        color={ACCENT.primario}
+      />
+      <Text style={styles.configPanelTitulo}>Configuración</Text>
+    </View>
+    <View style={styles.configFila}>
+      <Text style={styles.configLabel}>Tiempo estimado</Text>
+      <Text style={styles.configValor}>{tiempoEstimado} min</Text>
+    </View>
+    <View style={[styles.configFila, { marginTop: 6 }]}>
+      <Text style={styles.configLabel}>Dificultad</Text>
+      <Text style={[styles.configValor, { color: ACCENT.error }]}>
+        {dificultad}
+      </Text>
+    </View>
+  </View>
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// EDITOR DE LA PREGUNTA ACTIVA — columna central
+// ─────────────────────────────────────────────────────────────────────────
+const TIPOS_PREGUNTA: {
+  tipo: TipoPregunta;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { tipo: "Opción múltiple", icon: "checkbox" },
+  { tipo: "Abierta", icon: "create-outline" },
+  { tipo: "Imagen", icon: "image-outline" },
+  { tipo: "Audio", icon: "mic-outline" },
+];
+
+const EditorPreguntaActiva = ({
+  p,
+  idx,
+  total,
+  onChange,
+  onDelete,
+  onMover,
+  onAgregarOpcion,
+  onEliminarOpcion,
+}: {
+  p: PreguntaEnEdicion;
+  idx: number;
+  total: number;
+  onChange: (cambios: Partial<PreguntaEnEdicion>) => void;
+  onDelete: () => void;
+  onMover: (destino: number) => void;
+  onAgregarOpcion: () => void;
+  onEliminarOpcion: (letra: string) => void;
+}) => {
+  const actualizarOpcionTexto = (letra: string, texto: string) => {
+    onChange({
+      opciones: p.opciones.map((o) =>
+        o.letra === letra ? { ...o, texto } : o,
+      ),
+    });
+  };
+
+  return (
+    <View style={styles.editorCard}>
+      <View style={styles.editorTopRow}>
+        <View style={styles.editorBadge}>
+          <Text style={styles.editorBadgeTexto}>
+            Editando pregunta {idx + 1}
+          </Text>
+        </View>
+        <View
+          style={{
+            flex: 1,
+            height: 1,
+            backgroundColor: ACCENT.borde,
+            marginHorizontal: 10,
+          }}
+        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+          <Pressable
+            onPress={() => onMover(idx - 1)}
+            disabled={idx === 0}
+            style={styles.botonOrden}
+            hitSlop={4}
+          >
+            <Ionicons
+              name="chevron-up"
+              size={18}
+              color={idx === 0 ? ACCENT.textoTenue : ACCENT.primario}
+            />
+          </Pressable>
+          <Pressable
+            onPress={() => onMover(idx + 1)}
+            disabled={idx === total - 1}
+            style={styles.botonOrden}
+            hitSlop={4}
+          >
+            <Ionicons
+              name="chevron-down"
+              size={18}
+              color={idx === total - 1 ? ACCENT.textoTenue : ACCENT.primario}
+            />
+          </Pressable>
+          <Pressable onPress={onDelete} style={styles.botonOrden} hitSlop={4}>
+            <Ionicons
+              name="close-circle-outline"
+              size={19}
+              color={ACCENT.error}
+            />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Tipo de pregunta */}
+      <Text style={styles.campoLabelChico}>TIPO DE PREGUNTA</Text>
+      <View style={styles.tipoFila}>
+        {TIPOS_PREGUNTA.map(({ tipo, icon }) => {
+          const activo = tipo === "Opción múltiple"; // único tipo soportado por el backend actual
+          return (
+            <View
+              key={tipo}
+              style={[
+                styles.tipoBoton,
+                activo ? styles.tipoBotonActivo : styles.tipoBotonDeshabilitado,
+              ]}
+            >
+              <Ionicons
+                name={icon}
+                size={16}
+                color={activo ? ACCENT.primario : ACCENT.textoTenue}
+              />
+              <Text
+                style={
+                  activo
+                    ? styles.tipoBotonActivoTexto
+                    : styles.tipoBotonDeshabilitadoTexto
+                }
+              >
+                {tipo}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <Text style={styles.tipoNota}>
+        Este sistema solo admite preguntas de opción múltiple por ahora.
+      </Text>
+
+      {/* Enunciado */}
+      <Text style={[styles.campoLabelChico, { marginTop: 14 }]}>
+        ENUNCIADO DE LA PREGUNTA *
+      </Text>
+      <TextInput
+        style={styles.enunciadoInput}
+        value={p.texto}
+        onChangeText={(v) => onChange({ texto: v })}
+        placeholder="Escribe el enunciado aquí..."
+        placeholderTextColor={ACCENT.textoTenue}
+        multiline
+      />
+
+      {/* Opciones de respuesta */}
+      <View style={styles.opcionesHeaderRow}>
+        <Text style={styles.campoLabelChico}>OPCIONES DE RESPUESTA</Text>
+        <Text style={styles.hintTexto}>
+          Toca el check para marcar la correcta
+        </Text>
+      </View>
+
+      <View style={{ gap: 10 }}>
+        {p.opciones.map((o) => {
+          const esCorrecta = p.respuestaCorrecta === o.letra;
+          return (
+            <View
+              key={o.letra}
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
+              <View
+                style={[
+                  styles.letraBadge,
+                  esCorrecta && styles.letraBadgeActiva,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.letraBadgeTexto,
+                    esCorrecta && styles.letraBadgeTextoActiva,
+                  ]}
+                >
+                  {o.letra}
+                </Text>
+              </View>
+              <View
+                style={{
+                  flex: 1,
+                  position: "relative",
+                  justifyContent: "center",
+                }}
+              >
+                <TextInput
+                  style={[
+                    styles.opcionInput,
+                    esCorrecta && styles.opcionInputActiva,
+                  ]}
+                  value={o.texto}
+                  onChangeText={(v) => actualizarOpcionTexto(o.letra, v)}
+                  placeholder={`Escribe la opción ${o.letra}`}
+                  placeholderTextColor={ACCENT.textoTenue}
+                />
+                <Pressable
+                  onPress={() => onChange({ respuestaCorrecta: o.letra })}
+                  style={styles.checkBoton}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={
+                      esCorrecta
+                        ? "checkmark-circle"
+                        : "checkmark-circle-outline"
+                    }
+                    size={22}
+                    color={esCorrecta ? ACCENT.primario : ACCENT.textoTenue}
+                  />
+                </Pressable>
+              </View>
+              {p.opciones.length > 2 && (
+                <Pressable
+                  onPress={() => onEliminarOpcion(o.letra)}
+                  hitSlop={6}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={16}
+                    color={ACCENT.textoTenue}
+                  />
+                </Pressable>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {p.opciones.length < 6 && (
+        <Pressable onPress={onAgregarOpcion} style={styles.agregarOpcionBoton}>
+          <Ionicons name="add" size={16} color={ACCENT.primario} />
+          <Text style={styles.agregarOpcionTexto}>Añadir Opción</Text>
+        </Pressable>
+      )}
+
+      {/* Obligatoria / Puntaje */}
+      <View style={styles.obligatoriaFila}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text style={styles.campoLabel}>¿Obligatoria?</Text>
+          <Pressable
+            onPress={() => onChange({ obligatoria: !p.obligatoria })}
+            style={[
+              styles.toggleBase,
+              p.obligatoria && styles.toggleBaseActivo,
+            ]}
+          >
+            <View
+              style={[
+                styles.toggleBolita,
+                p.obligatoria && styles.toggleBolitaActiva,
+              ]}
+            />
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text style={styles.campoLabel}>Puntaje</Text>
+          <TextInput
+            style={styles.puntajeInput}
+            value={p.puntaje}
+            onChangeText={(v) =>
+              onChange({ puntaje: v.replace(/[^0-9]/g, "") })
+            }
+            keyboardType="numeric"
+          />
+        </View>
+      </View>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// VISTA PREVIA EN TIEMPO REAL — columna derecha
+// ─────────────────────────────────────────────────────────────────────────
+const TAMANOS_FUENTE = [14, 16, 18, 20];
+
+const VistaPreviaTiempoReal = ({
+  p,
+  idx,
+  total,
+  materia,
+}: {
+  p: PreguntaEnEdicion;
+  idx: number;
+  total: number;
+  materia: string;
+}) => {
+  const [tamanoFuente, setTamanoFuente] = useState(16);
+  const [alineacion, setAlineacion] = useState<"left" | "center" | "right">(
+    "left",
+  );
+  const [mostrarSelectorFuente, setMostrarSelectorFuente] = useState(false);
+
+  const opciones = p.opciones.filter((o) => o.texto.trim().length > 0);
+
+  return (
+    <View style={styles.previewWrap}>
+      <View style={styles.previewHeaderRow}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Ionicons name="eye-outline" size={14} color={ACCENT.primario} />
+          <Text style={styles.previewTitulo}>Vista previa en tiempo real</Text>
+        </View>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <Ionicons
+            name="phone-portrait-outline"
+            size={15}
+            color={ACCENT.textoTenue}
+          />
+          <Ionicons name="desktop-outline" size={15} color={ACCENT.primario} />
+        </View>
+      </View>
+
+      {/* Barra de herramientas: tamaño de fuente y alineación */}
+      <View style={styles.previewToolbar}>
+        <Pressable
+          onPress={() => setMostrarSelectorFuente((v) => !v)}
+          style={styles.fuenteSelector}
+        >
+          <Text style={styles.fuenteSelectorTexto}>{tamanoFuente}px</Text>
+          <Ionicons
+            name="chevron-down"
+            size={12}
+            color={ACCENT.textoSecundario}
+          />
+        </Pressable>
+        {mostrarSelectorFuente && (
+          <View style={styles.fuenteOpciones}>
+            {TAMANOS_FUENTE.map((t) => (
+              <Pressable
+                key={t}
+                onPress={() => {
+                  setTamanoFuente(t);
+                  setMostrarSelectorFuente(false);
+                }}
+                style={styles.fuenteOpcion}
+              >
+                <Text style={styles.fuenteOpcionTexto}>{t}px</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        <View style={styles.alineacionGrupo}>
+          {(["left", "center", "right"] as const).map((a) => (
+            <Pressable
+              key={a}
+              onPress={() => setAlineacion(a)}
+              style={styles.alineacionBoton}
+              hitSlop={4}
+            >
+              <Ionicons
+                name={
+                  a === "left"
+                    ? "menu-outline"
+                    : a === "center"
+                      ? "reorder-two-outline"
+                      : "menu-outline"
+                }
+                size={16}
+                color={alineacion === a ? ACCENT.primario : ACCENT.textoTenue}
+              />
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.previewCanvas}>
+        <View style={styles.previewCanvasTop}>
+          <View style={{ flexDirection: "row", gap: 5 }}>
+            <View style={[styles.previewDot, { backgroundColor: "#F2B8B5" }]} />
+            <View style={[styles.previewDot, { backgroundColor: "#FFD9A8" }]} />
+            <View style={[styles.previewDot, { backgroundColor: "#A8C7FF" }]} />
+          </View>
+          <Text style={styles.previewCanvasTopTexto}>
+            {materia ? materia.toUpperCase() : "EXAMEN DE ADMISIÓN"}
+          </Text>
+          <View style={{ width: 22 }} />
+        </View>
+
+        <View style={styles.previewBody}>
+          <Text style={styles.previewBadgePregunta}>
+            PREGUNTA {idx + 1} DE {total}
+          </Text>
+          <Text
+            style={[
+              styles.previewEnunciado,
+              { fontSize: tamanoFuente + 8, textAlign: alineacion },
+            ]}
+          >
+            {p.texto.trim() || "El enunciado de la pregunta aparecerá aquí..."}
+          </Text>
+
+          <View style={{ gap: 10, marginTop: 6 }}>
+            {opciones.length === 0 ? (
+              <Text style={styles.previewSinOpciones}>
+                Agrega opciones para ver la vista previa.
+              </Text>
+            ) : (
+              opciones.map((o) => {
+                const esCorrecta = p.respuestaCorrecta === o.letra;
+                return (
+                  <View
+                    key={o.letra}
+                    style={[
+                      styles.previewOpcion,
+                      esCorrecta && styles.previewOpcionActiva,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.previewOpcionLetra,
+                        esCorrecta && styles.previewOpcionLetraActiva,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.previewOpcionLetraTexto,
+                          esCorrecta && styles.previewOpcionLetraTextoActiva,
+                        ]}
+                      >
+                        {o.letra}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.previewOpcionTexto,
+                        { fontSize: tamanoFuente - 3 },
+                        esCorrecta && styles.previewOpcionTextoActivo,
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {o.texto}
+                    </Text>
+                    {esCorrecta && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={ACCENT.primario}
+                      />
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </View>
+
+        <View style={styles.previewFooter}>
+          <View style={styles.previewFooterBotonDeshabilitado}>
+            <Ionicons name="chevron-back" size={14} color={ACCENT.textoTenue} />
+            <Text style={styles.previewFooterTextoDeshabilitado}>Anterior</Text>
+          </View>
+          <View style={styles.previewFooterBoton}>
+            <Text style={styles.previewFooterTexto}>Siguiente</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={ACCENT.primario}
+            />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.tipCard}>
+        <Ionicons name="bulb-outline" size={16} color="white" />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.tipCardTitulo}>Tip de Accesibilidad</Text>
+          <Text style={styles.tipCardTexto}>
+            Asegúrate de que los colores de las opciones tengan suficiente
+            contraste para estudiantes con daltonismo.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const SegmentedRow = ({
+  opciones,
+  valor,
+  onCambiar,
+}: {
+  opciones: { value: string; label: string }[];
+  valor: string;
+  onCambiar: (v: string) => void;
+}) => (
+  <View style={styles.segmentedRow}>
+    {opciones.map((op) => {
+      const activo = op.value === valor;
+      return (
+        <Pressable
+          key={op.value}
+          onPress={() => onCambiar(op.value)}
+          style={[styles.segmentedItem, activo && styles.segmentedItemActivo]}
+        >
+          <Text
+            style={[
+              styles.segmentedItemTexto,
+              activo && styles.segmentedItemTextoActivo,
+            ]}
+          >
+            {op.label}
+          </Text>
+        </Pressable>
+      );
+    })}
+  </View>
+);
+
+const EditorBloqueModal = ({
+  visible,
+  onClose,
+  onSave,
+  carrerasDisponibles,
+  bloqueInicial,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (datos: {
+    examenId?: number;
+    materia: string;
+    seccion: string;
+    duracionExamen: number;
+    carreraIds: number[];
+    modoCalificacion: "inmediato" | "programado";
+    fechaPublicacion: string | null;
+    preguntas: PreguntaEnEdicion[];
+  }) => Promise<void>;
+  carrerasDisponibles: CarreraRef[];
+  bloqueInicial: any | null;
+}) => {
+  const { width } = useWindowDimensions();
+  const esEscritorio = width >= BREAKPOINT_ESCRITORIO;
+
+  const preguntasIniciales = useMemo<PreguntaEnEdicion[]>(() => {
+    if (!bloqueInicial) return [nuevaPreguntaVacia()];
+    const lista = (bloqueInicial.preguntas ?? []).map((p: Pregunta) => {
+      const opciones: OpcionEnEdicion[] = [];
+      if (p.opcion_a) opciones.push({ letra: "A", texto: p.opcion_a });
+      if (p.opcion_b) opciones.push({ letra: "B", texto: p.opcion_b });
+      if (p.opcion_c) opciones.push({ letra: "C", texto: p.opcion_c });
+      if (p.opcion_d) opciones.push({ letra: "D", texto: p.opcion_d });
+      return {
+        localId: `existing-${p.id}`,
+        id: p.id,
+        texto: p.pregunta,
+        opciones:
+          opciones.length > 0
+            ? opciones
+            : [
+                { letra: "A", texto: "" },
+                { letra: "B", texto: "" },
+              ],
+        respuestaCorrecta: p.respuesta_correcta ?? "A",
+        obligatoria: true,
+        puntaje: "1",
+      };
+    });
+    return lista.length > 0 ? lista : [nuevaPreguntaVacia()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [materia, setMateria] = useState(bloqueInicial?.materia ?? "");
+  const [seccion, setSeccion] = useState(bloqueInicial?.seccion ?? "");
+  const [duracion, setDuracion] = useState(
+    String(bloqueInicial?.duracion_examen ?? 60),
+  );
+  const [modoCalificacion, setModoCalificacion] = useState<
+    "inmediato" | "programado"
+  >(bloqueInicial?.modo_calificacion ?? "inmediato");
+  const [fechaPublicacion, setFechaPublicacion] = useState(
+    bloqueInicial?.fecha_publicacion?.split("T")[0] ?? "",
+  );
+  const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<
+    Set<number>
+  >(
+    () => new Set((bloqueInicial?.carreras ?? []).map((c: CarreraRef) => c.id)),
+  );
+  const [preguntas, setPreguntas] =
+    useState<PreguntaEnEdicion[]>(preguntasIniciales);
+  const [guardando, setGuardando] = useState(false);
+  const [preguntaActivaIdx, setPreguntaActivaIdx] = useState(0);
+  const [mostrarDatosBloque, setMostrarDatosBloque] = useState(false);
+
+  const toggleCarrera = (id: number) => {
+    setCarrerasSeleccionadas((prev) => {
+      const nuevo = new Set(prev);
+      if (nuevo.has(id)) nuevo.delete(id);
+      else nuevo.add(id);
+      return nuevo;
+    });
+  };
+
+  const actualizarPregunta = (
+    localId: string,
+    cambios: Partial<PreguntaEnEdicion>,
+  ) => {
+    setPreguntas((prev) =>
+      prev.map((p) => (p.localId === localId ? { ...p, ...cambios } : p)),
+    );
+  };
+
+  const eliminarPreguntaLocal = (localId: string) => {
+    setPreguntas((prev) => {
+      const nuevaLista = prev.filter((p) => p.localId !== localId);
+      return nuevaLista.length > 0 ? nuevaLista : [nuevaPreguntaVacia()];
+    });
+    setPreguntaActivaIdx((idx) => Math.max(0, idx - 1));
+  };
+
+  const moverPregunta = (idx: number, destino: number) => {
+    setPreguntas((prev) => {
+      if (destino < 0 || destino >= prev.length) return prev;
+      const copia = [...prev];
+      const [item] = copia.splice(idx, 1);
+      copia.splice(destino, 0, item);
+      return copia;
+    });
+    setPreguntaActivaIdx(destino);
+  };
+
+  const agregarPregunta = () => {
+    setPreguntas((prev) => [...prev, nuevaPreguntaVacia()]);
+    setPreguntaActivaIdx(preguntas.length);
+  };
+
+  const agregarOpcion = (localId: string) => {
+    setPreguntas((prev) =>
+      prev.map((p) => {
+        if (p.localId !== localId || p.opciones.length >= 6) return p;
+        const nuevaLetra = letraPorIndice(p.opciones.length);
+        return {
+          ...p,
+          opciones: [...p.opciones, { letra: nuevaLetra, texto: "" }],
+        };
+      }),
+    );
+  };
+
+  const eliminarOpcion = (localId: string, letra: string) => {
+    setPreguntas((prev) =>
+      prev.map((p) => {
+        if (p.localId !== localId || p.opciones.length <= 2) return p;
+        const opcionesFiltradas = p.opciones
+          .filter((o) => o.letra !== letra)
+          .map((o, i) => ({ ...o, letra: letraPorIndice(i) }));
+        const respuestaCorrecta = opcionesFiltradas.some(
+          (o) => o.letra === p.respuestaCorrecta,
+        )
+          ? p.respuestaCorrecta
+          : opcionesFiltradas[0].letra;
+        return { ...p, opciones: opcionesFiltradas, respuestaCorrecta };
+      }),
+    );
+  };
+
+  const handleGuardar = async () => {
+    if (!materia.trim()) {
+      Alert.alert("Falta información", "Escribe la materia del bloque.");
+      setMostrarDatosBloque(true);
+      return;
+    }
+    if (carrerasSeleccionadas.size === 0) {
+      Alert.alert("Falta información", "Selecciona al menos una carrera.");
+      setMostrarDatosBloque(true);
+      return;
+    }
+    if (preguntas.length === 0 || preguntas.some((p) => !p.texto.trim())) {
+      Alert.alert(
+        "Falta información",
+        "Todas las preguntas necesitan su enunciado.",
+      );
+      return;
+    }
+    if (
+      preguntas.some((p) => p.opciones.filter((o) => o.texto.trim()).length < 2)
+    ) {
+      Alert.alert(
+        "Falta información",
+        "Cada pregunta necesita al menos dos opciones con texto.",
+      );
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      await onSave({
+        examenId: bloqueInicial?.examen_id,
+        materia: materia.trim(),
+        seccion: seccion.trim() || "General",
+        duracionExamen: parseInt(duracion, 10) || 60,
+        carreraIds: Array.from(carrerasSeleccionadas),
+        modoCalificacion: modoCalificacion,
+        fechaPublicacion:
+          modoCalificacion === "programado"
+            ? new Date(fechaPublicacion).toISOString()
+            : null,
+        preguntas,
+      });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const preguntaActivaIdxSegura = Math.min(
+    preguntaActivaIdx,
+    preguntas.length - 1,
+  );
+  const preguntaActiva = preguntas[preguntaActivaIdxSegura];
+
+  const tiempoEstimadoMin = parseInt(duracion, 10) || 0;
+  const dificultad =
+    preguntas.length > 20 ? "Alta" : preguntas.length > 8 ? "Media" : "Baja";
+
+  // Estado inicializado directamente a partir de `bloqueInicial`, sin useEffect.
+  // El componente se remonta con una `key` distinta cada vez que se abre el
+  // modal (ver GestionarPreguntasScreen), así que estos initializers de
+  // useState siempre corren "en fresco" para el bloque que se está editando,
+  // evitando el patrón de "setState en cascada dentro de un efecto".
+  const contenidoEditor = (
+    <>
+      <Pressable
+        style={styles.seccionCardHeader}
+        onPress={() => setMostrarDatosBloque((v) => !v)}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons name="settings-outline" size={15} color={ACCENT.primario} />
+          <Text style={styles.seccionCardTitulo}>Datos del bloque</Text>
+        </View>
+        <Ionicons
+          name={mostrarDatosBloque ? "chevron-up" : "chevron-down"}
+          size={16}
+          color={ACCENT.textoSecundario}
+        />
+      </Pressable>
+
+      {mostrarDatosBloque && (
+        <View style={styles.seccionCard}>
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Materia</Text>
+            <TextInput
+              style={styles.input}
+              value={materia}
+              onChangeText={setMateria}
+              placeholder="Ej. Programación"
+              placeholderTextColor={ACCENT.textoTenue}
+            />
+          </View>
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Sección</Text>
+            <TextInput
+              style={styles.input}
+              value={seccion}
+              onChangeText={setSeccion}
+              placeholder="Ej. Fundamentos"
+              placeholderTextColor={ACCENT.textoTenue}
+            />
+          </View>
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Duración (minutos)</Text>
+            <TextInput
+              style={styles.input}
+              value={duracion}
+              onChangeText={setDuracion}
+              keyboardType="numeric"
+              placeholderTextColor={ACCENT.textoTenue}
+            />
+          </View>
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Modo de Calificación</Text>
+            <SegmentedRow
+              opciones={[
+                { value: "inmediato", label: "Inmediata" },
+                { value: "programado", label: "Programada" },
+              ]}
+              valor={modoCalificacion}
+              onCambiar={(v: any) => setModoCalificacion(v)}
+            />
+          </View>
+          {modoCalificacion === "programado" && (
+            <View style={styles.campoGrupo}>
+              <Text style={styles.campoLabel}>Fecha de Publicación</Text>
+              <TextInput
+                style={styles.input}
+                value={fechaPublicacion}
+                onChangeText={setFechaPublicacion}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={ACCENT.textoTenue}
+              />
+              <Text style={styles.hintTexto}>
+                Los resultados serán visibles a partir de esta fecha.
+              </Text>
+            </View>
+          )}
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Carreras vinculadas</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {carrerasDisponibles.map((c) => {
+                const activa = carrerasSeleccionadas.has(c.id);
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => toggleCarrera(c.id)}
+                    style={[
+                      styles.carreraChip,
+                      activa && styles.carreraChipActiva,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.carreraChipTexto,
+                        activa && styles.carreraChipTextoActiva,
+                      ]}
+                    >
+                      {c.nombre}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {preguntaActiva && (
+        <EditorPreguntaActiva
+          p={preguntaActiva}
+          idx={preguntaActivaIdxSegura}
+          total={preguntas.length}
+          onChange={(cambios) =>
+            actualizarPregunta(preguntaActiva.localId, cambios)
+          }
+          onDelete={() => eliminarPreguntaLocal(preguntaActiva.localId)}
+          onMover={(destino) => moverPregunta(preguntaActivaIdxSegura, destino)}
+          onAgregarOpcion={() => agregarOpcion(preguntaActiva.localId)}
+          onEliminarOpcion={(letra) =>
+            eliminarOpcion(preguntaActiva.localId, letra)
+          }
+        />
+      )}
+    </>
+  );
+
+  // Layout de columnas: en escritorio se muestran las 3 columnas lado a lado;
+  // en tablet, 2 columnas (editor + preview) con el selector arriba;
+  // en teléfono, todo apilado verticalmente.
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: ACCENT.fondo }}>
+        {/* Header estilo escritorio: flecha atrás, título, iconos de acción, Cancelar / Publicar */}
+        <View style={styles.modalHeader}>
+          <Pressable
+            onPress={onClose}
+            style={styles.modalBackButton}
+            hitSlop={6}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={20}
+              color={ACCENT.textoSecundario}
+            />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modalTitle}>Editor de Reactivos</Text>
+            <Text style={styles.modalSubtitle}>
+              {bloqueInicial ? "Edición de Bloque" : "Nuevo Bloque"}
+              {materia ? ` de ${materia}` : ""}
+            </Text>
+          </View>
+          {esEscritorio && (
+            <View style={{ flexDirection: "row", gap: 14, marginRight: 14 }}>
+              <Ionicons
+                name="cloud-upload-outline"
+                size={19}
+                color={ACCENT.textoSecundario}
+              />
+              <Ionicons
+                name="settings-outline"
+                size={19}
+                color={ACCENT.textoSecundario}
+              />
+              <Ionicons
+                name="help-circle-outline"
+                size={19}
+                color={ACCENT.textoSecundario}
+              />
+            </View>
+          )}
+          <Pressable onPress={onClose} style={styles.cancelButtonHeader}>
+            <Text style={styles.cancelButtonHeaderText}>Cancelar</Text>
+          </Pressable>
+          <Pressable
+            style={styles.saveButtonHeader}
+            onPress={handleGuardar}
+            disabled={guardando}
+          >
+            {guardando ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={16} color="white" />
+                <Text style={styles.saveButtonHeaderText}>Publicar</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        {esEscritorio ? (
+          // ── LAYOUT DE 3 COLUMNAS (escritorio / tablet horizontal) ──
+          <View style={styles.layoutEscritorio}>
+            <ScrollView
+              style={styles.columnaIzquierda}
+              contentContainerStyle={{ padding: 14, gap: 12 }}
+            >
+              <SelectorPreguntas
+                preguntas={preguntas}
+                activaIdx={preguntaActivaIdxSegura}
+                onSeleccionar={setPreguntaActivaIdx}
+                onAgregar={agregarPregunta}
+                horizontal={false}
+              />
+              <PanelConfiguracion
+                tiempoEstimado={tiempoEstimadoMin}
+                dificultad={dificultad}
+              />
+            </ScrollView>
+
+            <ScrollView
+              style={styles.columnaCentral}
+              contentContainerStyle={{ padding: 16, gap: 14 }}
+            >
+              {contenidoEditor}
+            </ScrollView>
+
+            <ScrollView
+              style={styles.columnaDerecha}
+              contentContainerStyle={{ padding: 16 }}
+            >
+              {preguntaActiva && (
+                <VistaPreviaTiempoReal
+                  p={preguntaActiva}
+                  idx={preguntaActivaIdxSegura}
+                  total={preguntas.length}
+                  materia={materia}
+                />
+              )}
+            </ScrollView>
+          </View>
+        ) : (
+          // ── LAYOUT APILADO (tablet vertical / teléfono) ──
+          <ScrollView
+            contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 24 }}
+          >
+            <SelectorPreguntas
+              preguntas={preguntas}
+              activaIdx={preguntaActivaIdxSegura}
+              onSeleccionar={setPreguntaActivaIdx}
+              onAgregar={agregarPregunta}
+              horizontal={true}
+            />
+            {contenidoEditor}
+            {preguntaActiva && (
+              <VistaPreviaTiempoReal
+                p={preguntaActiva}
+                idx={preguntaActivaIdxSegura}
+                total={preguntas.length}
+                materia={materia}
+              />
+            )}
+            <PanelConfiguracion
+              tiempoEstimado={tiempoEstimadoMin}
+              dificultad={dificultad}
+            />
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+// --- PANTALLA PRINCIPAL ---
+
+export default function GestionarPreguntasScreen() {
+  const [cargando, setCargando] = useState(true);
+  const [preguntas, setPreguntas] = useState<Pregunta[]>([]);
+  const [carreras, setCarreras] = useState<CarreraRef[]>([]);
+  const [materiaSeleccionada, setMateriaSeleccionada] = useState("Todas");
+  const [isEditorVisible, setEditorVisible] = useState(false);
+  const [bloqueEnEdicion, setBloqueEnEdicion] = useState<any | null>(null);
+  // Se incrementa cada vez que se abre el editor, para forzar un remount
+  // limpio del modal (y así inicializar su estado sin necesidad de un
+  // useEffect que haga setState en cascada).
+  const [editorKey, setEditorKey] = useState(0);
+  const [paginaActual, setPaginaActual] = useState(0);
+  const TAMANO_PAGINA = 8; // exámenes (bloques) por página
+
+  const cargarDatos = useCallback(async () => {
+    setCargando(true);
+    try {
+      const [preguntasData, carrerasData] = await Promise.all([
+        obtenerTodasPreguntas(),
+        obtenerCarreras(),
+      ]);
+      setPreguntas(preguntasData as Pregunta[]);
+      setCarreras(carrerasData.map((c) => ({ id: c.id, nombre: c.nombre })));
+    } catch {
+      Alert.alert("Error", "No se pudieron cargar los datos.");
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    Promise.resolve().then(() => cargarDatos());
+  }, [cargarDatos]);
+
+  const materiasFiltro = useMemo(() => {
+    const set = new Set(preguntas.map((p) => p.materia).filter(Boolean));
+    return ["Todas", ...Array.from(set)];
+  }, [preguntas]);
+
+  const gruposFiltrados = useMemo(() => {
+    const filtradas = preguntas.filter(
+      (p) =>
+        materiaSeleccionada === "Todas" || p.materia === materiaSeleccionada,
+    );
+    const grupos: Record<number, any> = {};
+    for (const p of filtradas) {
+      if (!grupos[p.examen_id]) {
+        grupos[p.examen_id] = {
+          ...p,
+          carreras: p.carreras.map((c) => c.nombre),
+          carrerasRef: p.carreras,
+          preguntas: [],
+        };
+      }
+      grupos[p.examen_id].preguntas.push(p);
+    }
+    return Object.values(grupos);
+  }, [preguntas, materiaSeleccionada]);
+
+  useEffect(() => {
+    Promise.resolve().then(() => setPaginaActual(0));
+  }, [materiaSeleccionada]);
+
+  const totalGrupos = gruposFiltrados.length;
+  const totalPaginas = Math.max(1, Math.ceil(totalGrupos / TAMANO_PAGINA));
+  const paginaSegura = Math.min(paginaActual, totalPaginas - 1);
+  const inicioSegmento = paginaSegura * TAMANO_PAGINA;
+  const finSegmento = Math.min(inicioSegmento + TAMANO_PAGINA, totalGrupos);
+  const gruposSegmentados = gruposFiltrados.slice(inicioSegmento, finSegmento);
+
+  const handleEliminar = (id: number) => {
+    Alert.alert("Confirmar", `¿Eliminar reactivo #${id}?`, [
+      { text: "Cancelar" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          const exito = await eliminarPregunta(id);
+          if (exito) {
+            cargarDatos();
+          } else {
+            Alert.alert("Error", "No se pudo eliminar el reactivo.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleEliminarBloque = (grupo: any) => {
+    Alert.alert(
+      "Confirmar",
+      `¿Eliminar todo el bloque de "${grupo.materia} · ${grupo.seccion}"? Se borrarán sus ${grupo.preguntas.length} preguntas.`,
+      [
+        { text: "Cancelar" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            const exito = await eliminarExamen(grupo.examen_id);
+            if (exito) {
+              cargarDatos();
+            } else {
+              Alert.alert("Error", "No se pudo eliminar el bloque.");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleGuardarBloque = async ({
+    examenId,
+    materia,
+    seccion,
+    duracionExamen,
+    carreraIds,
+    modoCalificacion,
+    fechaPublicacion,
+    preguntas: preguntasEditadas,
+  }: {
+    examenId?: number;
+    materia: string;
+    seccion: string;
+    duracionExamen: number;
+    carreraIds: number[];
+    modoCalificacion: "inmediato" | "programado";
+    fechaPublicacion: string | null;
+    preguntas: PreguntaEnEdicion[];
+  }) => {
+    const payloadPreguntas = preguntasEditadas.map((p) => {
+      const porLetra = (letra: string) =>
+        p.opciones.find((o) => o.letra === letra)?.texto.trim() ?? "";
+      return {
+        pregunta: p.texto.trim(),
+        tipo: "Opción múltiple" as const,
+        opcion_a: porLetra("A"),
+        opcion_b: porLetra("B"),
+        opcion_c: porLetra("C"),
+        opcion_d: porLetra("D"),
+        respuesta_correcta: p.respuestaCorrecta,
+      };
+    });
+
+    try {
+      if (examenId) {
+        const okExamen = await actualizarExamen(examenId, {
+          materia,
+          seccion,
+          duracion_examen: duracionExamen,
+          modo_calificacion: modoCalificacion,
+          fecha_publicacion: fechaPublicacion,
+        });
+        const okCarreras = await vincularCarrerasAExamen(examenId, carreraIds);
+        const okPreguntas = await reemplazarPreguntasDeExamen(
+          examenId,
+          payloadPreguntas,
+        );
+        if (!okExamen || !okCarreras || !okPreguntas) {
+          Alert.alert(
+            "Aviso",
+            "El bloque se guardó parcialmente. Revisa la conexión e intenta de nuevo.",
+          );
+        }
+      } else {
+        const examen = await crearExamen({
+          materia,
+          seccion,
+          duracion_examen: duracionExamen,
+          modo_calificacion: modoCalificacion,
+          fecha_publicacion: fechaPublicacion,
+        });
+        if (!examen) {
+          Alert.alert("Error", "No se pudo crear el bloque.");
+          return;
+        }
+        await vincularCarrerasAExamen(examen.id, carreraIds);
+        await agregarPreguntasBloque(
+          payloadPreguntas.map((p) => ({ ...p, examen_id: examen.id })),
+        );
+      }
+      setEditorVisible(false);
+      setBloqueEnEdicion(null);
+      cargarDatos();
+    } catch {
+      Alert.alert("Error", "Ocurrió un problema al guardar el bloque.");
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* Encabezado */}
+      <LinearGradient
+        colors={[ColoresApp.oscuro, ColoresApp.oscuroClaro]}
+        style={styles.headerContainer}
+      >
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={styles.headerTitle}>Banco de Reactivos</Text>
+            <Text style={styles.headerSubtitle}>
+              Gestión de preguntas de opción múltiple
+            </Text>
+          </View>
+          <Pressable
+            style={styles.nuevoButton}
+            onPress={() => {
+              setBloqueEnEdicion(null);
+              setEditorKey((k) => k + 1);
+              setEditorVisible(true);
+            }}
+          >
+            <Ionicons name="add" size={20} color={ACCENT.primario} />
+            <Text style={styles.nuevoButtonText}>Nuevo Bloque</Text>
+          </Pressable>
+        </View>
+        <View style={styles.statsContainer}>
+          <StatChip
+            icon="library-outline"
+            value={preguntas.length.toString()}
+            label="Total reactivos"
+            color="#FFD700"
+          />
+          <StatChip
+            icon="school-outline"
+            value={carreras.length.toString()}
+            label="Carreras"
+            color="#ADD8E6"
+          />
+        </View>
+        <View>
+          <Text style={styles.filtroTitle}>Filtrar por materia</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filtrosContainer}
+          >
+            {materiasFiltro.map((materia) => (
+              <FiltroChip
+                key={materia}
+                label={materia}
+                seleccionado={materia === materiaSeleccionada}
+                onSelect={() => setMateriaSeleccionada(materia)}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      </LinearGradient>
+
+      {/* Contenido */}
+      {cargando ? (
+        <ActivityIndicator
+          style={{ marginTop: 50 }}
+          size="large"
+          color={ACCENT.primario}
+        />
+      ) : (
+        <>
+          <ScrollView contentContainerStyle={styles.listaContainer}>
+            {gruposSegmentados.length > 0 ? (
+              gruposSegmentados.map((grupo: any) => (
+                <BloqueExamenExpandible
+                  key={grupo.examen_id}
+                  grupo={grupo}
+                  onEdit={() => {
+                    setBloqueEnEdicion({
+                      ...grupo,
+                      carreras: grupo.carrerasRef,
+                    });
+                    setEditorKey((k) => k + 1);
+                    setEditorVisible(true);
+                  }}
+                  onDelete={handleEliminar}
+                  onDeleteBloque={() => handleEliminarBloque(grupo)}
+                />
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyStateIconWrap}>
+                  <Ionicons
+                    name="file-tray-outline"
+                    size={40}
+                    color={ACCENT.textoTenue}
+                  />
+                </View>
+                <Text style={styles.emptyStateText}>
+                  Sin reactivos para este filtro.
+                </Text>
+                <Text style={styles.emptyStateSubtext}>
+                  Crea un nuevo bloque para comenzar.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+          {totalGrupos > 0 && (
+            <View style={styles.footerPaginacion}>
+              <Text style={styles.footerPaginacionTexto}>
+                Mostrando {inicioSegmento + 1}-{finSegmento} de {totalGrupos}{" "}
+                examen(es)
+              </Text>
+              <View style={styles.footerPaginacionBotones}>
+                <Pressable
+                  onPress={() => setPaginaActual((p) => Math.max(0, p - 1))}
+                  disabled={paginaSegura === 0}
+                  style={[
+                    styles.paginacionBoton,
+                    paginaSegura === 0 && styles.paginacionBotonDeshabilitado,
+                  ]}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={18}
+                    color={
+                      paginaSegura === 0 ? ACCENT.textoTenue : ACCENT.primario
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setPaginaActual((p) => Math.min(totalPaginas - 1, p + 1))
+                  }
+                  disabled={finSegmento >= totalGrupos}
+                  style={[
+                    styles.paginacionBoton,
+                    finSegmento >= totalGrupos &&
+                      styles.paginacionBotonDeshabilitado,
+                  ]}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={
+                      finSegmento >= totalGrupos
+                        ? ACCENT.textoTenue
+                        : ACCENT.primario
+                    }
+                  />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </>
+      )}
+
+      <EditorBloqueModal
+        key={String(editorKey)}
+        visible={isEditorVisible}
+        onClose={() => {
+          setEditorVisible(false);
+          setBloqueEnEdicion(null);
+        }}
+        onSave={handleGuardarBloque}
+        carrerasDisponibles={carreras}
+        bloqueInicial={bloqueEnEdicion}
+      />
+    </View>
+  );
+}
+
+// --- ESTILOS ---
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: ACCENT.fondo,
+  },
+  headerContainer: {
+    padding: 20,
+    paddingTop: 50,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    gap: 18,
+  },
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "white",
+    letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.55)",
+    marginTop: 4,
+  },
+  nuevoButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  nuevoButtonText: {
+    color: ACCENT.primario,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  statsContainer: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  statChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  statChipIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statChipValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "white",
+  },
+  statChipLabel: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.6)",
+  },
+  filtroTitle: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "700",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  filtrosContainer: {
+    paddingBottom: 4,
+  },
+  filtroChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 99,
+    marginRight: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  filtroChipSeleccionado: {
+    backgroundColor: "white",
+    borderColor: "white",
+  },
+  filtroChipTexto: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  filtroChipTextoSeleccionado: {
+    color: ACCENT.primario,
+  },
+  listaContainer: {
+    padding: 14,
+    gap: 12,
+  },
+  bloqueContainer: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    overflow: "hidden",
+  },
+  bloqueHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 10,
+  },
+  bloqueIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: ACCENT.primarioFondo,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bloqueHeaderText: {
+    flex: 1,
+  },
+  bloqueTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: ACCENT.texto,
+  },
+  bloqueSubtitle: {
+    fontSize: 11,
+    color: ACCENT.textoSecundario,
+    marginTop: 2,
+  },
+  chevronWrap: {
+    marginLeft: 2,
+  },
+  preguntasContainer: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.bordeSuave,
+    paddingTop: 10,
+    backgroundColor: ACCENT.fondo,
+  },
+  preguntaCard: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  idBadge: {
+    backgroundColor: ACCENT.primario,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  idBadgeText: {
+    fontSize: 11,
+    color: "white",
+    fontWeight: "700",
+  },
+  tipoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: ACCENT.primarioFondo,
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tipoBadgeText: {
+    fontSize: 10,
+    color: ACCENT.primario,
+    fontWeight: "700",
+  },
+  preguntaTexto: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: ACCENT.texto,
+    marginTop: 8,
+  },
+  actionButton: {
+    padding: 6,
+  },
+  emptyState: {
+    marginTop: 80,
+    alignItems: "center",
+    gap: 6,
+  },
+  emptyStateIconWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: ACCENT.texto,
+  },
+  emptyStateSubtext: {
+    fontSize: 12,
+    color: ACCENT.textoSecundario,
+  },
+
+  // ── HEADER DEL MODAL (estilo escritorio) ──
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    paddingHorizontal: 16,
+    backgroundColor: "white",
+    borderBottomWidth: 1,
+    borderBottomColor: ACCENT.borde,
+    gap: 10,
+  },
+  modalBackButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: ACCENT.primario,
+  },
+  modalSubtitle: {
+    fontSize: 11,
+    color: ACCENT.textoSecundario,
+    marginTop: 2,
+  },
+  cancelButtonHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  cancelButtonHeaderText: {
+    color: ACCENT.textoSecundario,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  saveButtonHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: ACCENT.primario,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  saveButtonHeaderText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  // ── LAYOUT DE 3 COLUMNAS ──
+  layoutEscritorio: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  columnaIzquierda: {
+    width: 280,
+    borderRightWidth: 1,
+    borderRightColor: ACCENT.borde,
+    backgroundColor: "white",
+  },
+  columnaCentral: {
+    flex: 1.4,
+    borderRightWidth: 1,
+    borderRightColor: ACCENT.borde,
+  },
+  columnaDerecha: {
+    flex: 1,
+    backgroundColor: ACCENT.fondo,
+  },
+
+  seccionCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  seccionCard: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    padding: 16,
+    gap: 14,
+    marginTop: -6,
+  },
+  seccionCardTitulo: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: ACCENT.texto,
+  },
+  campoGrupo: {
+    gap: 6,
+  },
+  campoLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: ACCENT.primario,
+  },
+  campoLabelChico: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: ACCENT.textoTenue,
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  hintTexto: {
+    fontSize: 10,
+    fontStyle: "italic",
+    color: ACCENT.textoTenue,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    backgroundColor: ACCENT.fondo,
+    color: ACCENT.texto,
+  },
+  carreraChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 99,
+    backgroundColor: ACCENT.fondo,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+  },
+  carreraChipActiva: {
+    backgroundColor: ACCENT.primario,
+    borderColor: ACCENT.primario,
+  },
+  carreraChipTexto: {
+    fontSize: 12,
+    color: ACCENT.texto,
+    fontWeight: "600",
+  },
+  carreraChipTextoActiva: {
+    color: "white",
+  },
+
+  // ── SELECTOR DE PREGUNTAS ──
+  selectorWrap: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    padding: 12,
+    gap: 10,
+  },
+  selectorWrapColumna: {
+    flex: 1,
+  },
+  selectorHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  selectorTitulo: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: ACCENT.texto,
+  },
+  contadorPreguntas: {
+    backgroundColor: ACCENT.primario,
+    borderRadius: 99,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  contadorPreguntasTexto: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  selectorScrollHorizontal: {
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  selectorScrollVertical: {
+    gap: 8,
+  },
+  selectorTab: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    backgroundColor: ACCENT.fondo,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  selectorTabHorizontal: {
+    width: 128,
+  },
+  selectorTabActiva: {
+    backgroundColor: ACCENT.primarioFondo,
+    borderColor: ACCENT.primario,
+    borderLeftWidth: 3,
+  },
+  selectorTabNumero: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: ACCENT.textoTenue,
+  },
+  selectorTabNumeroActivo: {
+    color: ACCENT.primario,
+  },
+  selectorTabTexto: {
+    fontSize: 11,
+    color: ACCENT.textoSecundario,
+    marginTop: 2,
+  },
+  selectorTabTextoActivo: {
+    color: ACCENT.texto,
+    fontWeight: "600",
+  },
+  selectorTabTextoVacio: {
+    fontStyle: "italic",
+    color: ACCENT.textoTenue,
+  },
+  selectorAgregar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: ACCENT.primario,
+    borderStyle: "dashed",
+    backgroundColor: ACCENT.primarioFondo,
+    paddingVertical: 12,
+  },
+  selectorAgregarHorizontal: {
+    width: 100,
+    flexDirection: "column",
+  },
+  selectorAgregarTexto: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ACCENT.primario,
+  },
+
+  // ── PANEL CONFIGURACIÓN ──
+  configPanel: {
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    padding: 14,
+  },
+  configPanelTitulo: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: ACCENT.texto,
+  },
+  configFila: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  configLabel: {
+    fontSize: 12,
+    color: ACCENT.textoSecundario,
+  },
+  configValor: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ACCENT.texto,
+  },
+
+  // ── EDITOR DE PREGUNTA ──
+  editorCard: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    padding: 16,
+    gap: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  segmentedRow: {
+    flexDirection: "row",
+    backgroundColor: ACCENT.bordeSuave,
+    borderRadius: 10,
+    padding: 4,
+    gap: 4,
+  },
+  segmentedItem: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  segmentedItemActivo: { backgroundColor: ACCENT.primario },
+  segmentedItemTexto: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: ACCENT.texto,
+  },
+  segmentedItemTextoActivo: {
+    color: "white",
+    fontWeight: "700",
+  },
+  editorTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  editorBadge: {
+    backgroundColor: ACCENT.primario,
+    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  editorBadgeTexto: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  botonOrden: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tipoFila: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
+  },
+  tipoBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  tipoBotonActivo: {
+    borderWidth: 1.5,
+    borderColor: ACCENT.primario,
+    backgroundColor: ACCENT.primarioFondo,
+  },
+  tipoBotonActivoTexto: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: ACCENT.primario,
+  },
+  tipoBotonDeshabilitado: {
+    borderColor: ACCENT.borde,
+    opacity: 0.5,
+  },
+  tipoBotonDeshabilitadoTexto: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: ACCENT.textoTenue,
+  },
+  tipoNota: {
+    fontSize: 10,
+    color: ACCENT.textoTenue,
+    fontStyle: "italic",
+    marginTop: 6,
+  },
+  opcionesHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  enunciadoInput: {
+    minHeight: 84,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    backgroundColor: ACCENT.fondo,
+    color: ACCENT.texto,
+    textAlignVertical: "top",
+  },
+  letraBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: ACCENT.fondo,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+  },
+  letraBadgeActiva: {
+    backgroundColor: ACCENT.primario,
+    borderColor: ACCENT.primario,
+  },
+  letraBadgeTexto: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ACCENT.textoSecundario,
+  },
+  letraBadgeTextoActiva: {
+    color: "white",
+  },
+  opcionInput: {
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingRight: 40,
+    fontSize: 14,
+    backgroundColor: "white",
+    color: ACCENT.texto,
+  },
+  opcionInputActiva: {
+    backgroundColor: ACCENT.primarioFondo,
+    borderColor: ACCENT.primario,
+  },
+  checkBoton: {
+    position: "absolute",
+    right: 10,
+  },
+  agregarOpcionBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: ACCENT.primario,
+    borderRadius: 10,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  agregarOpcionTexto: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ACCENT.primario,
+  },
+  obligatoriaFila: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.bordeSuave,
+  },
+  toggleBase: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: ACCENT.borde,
+    padding: 3,
+  },
+  toggleBaseActivo: {
+    backgroundColor: ACCENT.primario,
+  },
+  toggleBolita: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "white",
+  },
+  toggleBolitaActiva: {
+    marginLeft: 18,
+  },
+  puntajeInput: {
+    width: 56,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    textAlign: "center",
+    color: ACCENT.texto,
+  },
+
+  // ── VISTA PREVIA ──
+  previewWrap: {
+    gap: 12,
+  },
+  previewHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+  },
+  previewTitulo: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: ACCENT.textoSecundario,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  previewToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "white",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  fuenteSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  fuenteSelectorTexto: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: ACCENT.texto,
+  },
+  fuenteOpciones: {
+    position: "absolute",
+    top: 36,
+    left: 8,
+    backgroundColor: "white",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    zIndex: 10,
+    elevation: 6,
+  },
+  fuenteOpcion: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  fuenteOpcionTexto: {
+    fontSize: 12,
+    color: ACCENT.texto,
+  },
+  alineacionGrupo: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  alineacionBoton: {
+    padding: 2,
+  },
+  previewCanvas: {
+    backgroundColor: "white",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  previewCanvasTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: ACCENT.fondo,
+    borderBottomWidth: 1,
+    borderBottomColor: ACCENT.borde,
+  },
+  previewDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  previewCanvasTopTexto: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: ACCENT.textoTenue,
+    letterSpacing: 0.6,
+  },
+  previewBody: {
+    padding: 18,
+    gap: 12,
+  },
+  previewBadgePregunta: {
+    alignSelf: "flex-start",
+    fontSize: 10,
+    fontWeight: "800",
+    color: ACCENT.primario,
+    backgroundColor: ACCENT.primarioFondo,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  previewEnunciado: {
+    fontWeight: "700",
+    color: ACCENT.texto,
+    lineHeight: 24,
+  },
+  previewSinOpciones: {
+    fontSize: 12,
+    color: ACCENT.textoTenue,
+    fontStyle: "italic",
+  },
+  previewOpcion: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  previewOpcionActiva: {
+    borderWidth: 2,
+    borderColor: ACCENT.primario,
+    backgroundColor: ACCENT.primarioFondo,
+  },
+  previewOpcionLetra: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: ACCENT.fondo,
+  },
+  previewOpcionLetraActiva: {
+    backgroundColor: ACCENT.primario,
+  },
+  previewOpcionLetraTexto: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: ACCENT.textoSecundario,
+  },
+  previewOpcionLetraTextoActiva: {
+    color: "white",
+  },
+  previewOpcionTexto: {
+    flex: 1,
+    color: ACCENT.textoSecundario,
+  },
+  previewOpcionTextoActivo: {
+    color: ACCENT.texto,
+    fontWeight: "600",
+  },
+  previewFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.borde,
+    backgroundColor: ACCENT.fondo,
+  },
+  previewFooterBotonDeshabilitado: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    opacity: 0.5,
+  },
+  previewFooterTextoDeshabilitado: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: ACCENT.textoTenue,
+  },
+  previewFooterBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  previewFooterTexto: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: ACCENT.primario,
+  },
+  tipCard: {
+    flexDirection: "row",
+    gap: 10,
+    backgroundColor: ACCENT.primario,
+    borderRadius: 14,
+    padding: 14,
+  },
+  tipCardTitulo: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  tipCardTexto: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  footerPaginacion: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "white",
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.borde,
+  },
+  footerPaginacionTexto: {
+    fontSize: 11,
+    color: ACCENT.textoSecundario,
+  },
+  footerPaginacionBotones: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  paginacionBoton: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: ACCENT.primarioFondo,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paginacionBotonDeshabilitado: {
+    backgroundColor: ACCENT.fondo,
+  },
+});
