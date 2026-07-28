@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase } from "./supabaseClient";
 
 /**
  * Consultas de resultados para el panel de administración y reportes
@@ -10,13 +10,13 @@ import { supabase } from './supabaseClient';
 export async function obtenerResultadosAdmin(): Promise<Record<string, any>[]> {
   try {
     const { data, error } = await supabase
-      .from('aspirantes')
-      .select('*, carreras(nombre)')
-      .order('id', { ascending: false });
+      .from("aspirantes")
+      .select("*, carreras(nombre)")
+      .order("id", { ascending: false });
     if (error) throw error;
     return data ?? [];
   } catch (e) {
-    console.warn('Error en obtenerResultadosAdmin:', e);
+    console.warn("Error en obtenerResultadosAdmin:", e);
     return [];
   }
 }
@@ -26,39 +26,40 @@ export async function obtenerResultadosAdmin(): Promise<Record<string, any>[]> {
  * de una carrera, ordenados de mayor a menor calificación.
  */
 export async function obtenerResultadosPorCarrera(
-  carreraId: number
+  carreraId: number,
 ): Promise<Record<string, any>[]> {
-  try {
-    const { data, error } = await supabase
-      .from('aspirantes')
-      .select(
-        'id, folio, nombre, correo, estado, resultado, aciertos, ' +
-          'examen_finalizado, asistencia, hora_inicio, hora_fin, fecha_calificacion'
-      )
-      .eq('carrera_id', carreraId)
-      .order('resultado', { ascending: false });
-    if (error) throw error;
-    return data ?? [];
-  } catch (e) {
-    console.warn('Error en obtenerResultadosPorCarrera:', e);
-    return [];
+  const { data, error } = await supabase
+    .from("aspirantes")
+    .select(
+      "id, folio, nombre, correo, estado, resultado, aciertos, " +
+        "examen_finalizado, asistencia, hora_inicio, hora_fin, fecha_calificacion",
+    )
+    .eq("carrera_id", carreraId)
+    .order("resultado", { ascending: false });
+  if (error) {
+    // No lo convertimos silenciosamente en []: si es un error de permisos
+    // (RLS) o de red, el panel necesita saberlo para mostrarlo al admin
+    // en vez de simplemente decir "Sin resultados" sin explicación.
+    console.error("Error en obtenerResultadosPorCarrera:", error);
+    throw error;
   }
+  return data ?? [];
 }
 
 /** Genera un reporte de todos los aspirantes de un ciclo/periodo (por año, según su folio). */
 export async function generarReporteAspirantesPeriodo(
-  ano: number
+  ano: number,
 ): Promise<Record<string, any>[]> {
   try {
     const { data, error } = await supabase
-      .from('aspirantes')
-      .select('*, carreras(nombre)')
-      .like('folio', `%UTO-${ano}-%`)
-      .order('id', { ascending: false });
+      .from("aspirantes")
+      .select("*, carreras(nombre)")
+      .like("folio", `%UTO-${ano}-%`)
+      .order("id", { ascending: false });
     if (error) throw error;
     return data ?? [];
   } catch (e) {
-    console.warn('Error en generarReporteAspirantesPeriodo:', e);
+    console.warn("Error en generarReporteAspirantesPeriodo:", e);
     return [];
   }
 }
@@ -73,42 +74,57 @@ export async function generarReporteAspirantesPeriodo(
 export async function purgarAspirantesPeriodo(ano: number): Promise<boolean> {
   try {
     const { data: aspirantesParaPurgar, error: errorSelect } = await supabase
-      .from('aspirantes')
-      .select('id')
-      .like('folio', `%UTO-${ano}-%`);
+      .from("aspirantes")
+      .select("id")
+      .like("folio", `%UTO-${ano}-%`);
     if (errorSelect) throw errorSelect;
 
     if (!aspirantesParaPurgar || aspirantesParaPurgar.length === 0) {
-      console.log(`purgarAspirantesPeriodo: No hay aspirantes del año ${ano}, nada que purgar.`);
+      console.log(
+        `purgarAspirantesPeriodo: No hay aspirantes del año ${ano}, nada que purgar.`,
+      );
       return true;
     }
 
     const aspiranteIds = aspirantesParaPurgar.map((a) => a.id as number);
 
     console.log(
-      `purgarAspirantesPeriodo: Purgando ${aspiranteIds.length} aspirantes del año ${ano}...`
+      `purgarAspirantesPeriodo: Purgando ${aspiranteIds.length} aspirantes del año ${ano}...`,
     );
 
-    // 1. Borrar respuestas relacionadas primero (respetar FK)
-    const { error: errorRespuestas } = await supabase
-      .from('respuestas')
-      .delete()
-      .in('aspirante_id', aspiranteIds);
-    if (errorRespuestas) throw errorRespuestas;
+    // 1. Borrar todo lo que depende de estos aspirantes por FK. Además de
+    // `respuestas`, existen `avisos_lectura`, `material_progreso` y
+    // `push_tokens` (agregadas después): si quedan filas ahí, el DELETE de
+    // `aspirantes` de abajo se rechaza por violación de llave foránea y el
+    // archivado queda sin efecto (por eso "Archivar Período" no purgaba).
+    const tablasDependientes = [
+      "respuestas",
+      "avisos_lectura",
+      "material_progreso",
+      "push_tokens",
+    ];
+    for (const tabla of tablasDependientes) {
+      const { error } = await supabase
+        .from(tabla)
+        .delete()
+        .in("aspirante_id", aspiranteIds);
+      if (error) throw error;
+    }
 
     // 2. Borrar los aspirantes. Se pide `select('id')` para poder verificar
     // cuántas filas se eliminaron realmente: si RLS bloquea el delete,
     // Supabase no manda error, pero tampoco devuelve filas eliminadas.
-    const { data: aspirantesEliminados, error: errorAspirantes } = await supabase
-      .from('aspirantes')
-      .delete()
-      .in('id', aspiranteIds)
-      .select('id');
+    const { data: aspirantesEliminados, error: errorAspirantes } =
+      await supabase
+        .from("aspirantes")
+        .delete()
+        .in("id", aspiranteIds)
+        .select("id");
     if (errorAspirantes) throw errorAspirantes;
 
     if (!aspirantesEliminados || aspirantesEliminados.length === 0) {
       console.warn(
-        'purgarAspirantesPeriodo: 0 aspirantes eliminados (posible bloqueo de RLS).',
+        "purgarAspirantesPeriodo: 0 aspirantes eliminados (posible bloqueo de RLS).",
       );
       return false;
     }
@@ -119,10 +135,10 @@ export async function purgarAspirantesPeriodo(ano: number): Promise<boolean> {
       );
     }
 
-    console.log('purgarAspirantesPeriodo: Purga completada correctamente.');
+    console.log("purgarAspirantesPeriodo: Purga completada correctamente.");
     return true;
   } catch (e) {
-    console.warn('Error en purgarAspirantesPeriodo:', e);
+    console.warn("Error en purgarAspirantesPeriodo:", e);
     return false;
   }
 }

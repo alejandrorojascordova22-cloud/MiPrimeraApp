@@ -1,3 +1,4 @@
+import CampoFechaHora from "@/components/CampoFechaHora";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
     actualizarActividad,
@@ -50,6 +51,58 @@ const COLORES_ETIQUETA = [
   "#16A34A",
   "#DC2626",
 ];
+
+/**
+ * Plantillas rápidas: las actividades típicas de un proceso de admisión,
+ * para no tener que escribir el título ni elegir color a mano cada vez
+ * (herramienta de diseño rápido del cronograma, al estilo de las
+ * plantillas/valores por defecto que ya existen en gestionar-preguntas.tsx).
+ */
+const PLANTILLAS_ACTIVIDAD = [
+  { titulo: "Registro de aspirantes", color: "#7C3AED" },
+  { titulo: "Aplicación del examen", color: "#0E9BA8" },
+  { titulo: "Publicación de resultados", color: "#F97316" },
+  { titulo: "Inscripción a materias", color: "#16A34A" },
+];
+
+function pad2(n: number) {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** Convierte un ISO guardado en BD a "AAAA-MM-DD HH:mm" para precargar el campo. */
+function formatoEntradaDesdeISO(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(
+    d.getHours(),
+  )}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * Convierte lo que haya en el campo (escrito a mano o elegido con el
+ * calendario) a un Date válido. Acepta con o sin hora, y con espacio o
+ * con "T" entre fecha y hora, para no forzarle formato exacto al usuario:
+ *   "2026-03-15"          -> 15/mar/2026 00:00
+ *   "2026-03-15 09:30"    -> 15/mar/2026 09:30
+ *   "2026-03-15T09:30"    -> 15/mar/2026 09:30
+ */
+function parsearFechaHoraLibre(texto: string): Date | null {
+  const limpio = texto.trim();
+  if (!limpio) return null;
+  const match = limpio.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?$/,
+  );
+  if (!match) return null;
+  const [, y, m, d, h, min] = match;
+  const fecha = new Date(
+    Number(y),
+    Number(m) - 1,
+    Number(d),
+    h ? Number(h) : 0,
+    min ? Number(min) : 0,
+  );
+  return isNaN(fecha.getTime()) ? null : fecha;
+}
 
 const ActividadCard = ({
   actividad,
@@ -170,8 +223,14 @@ const ActividadModal = ({
       if (visible) {
         setTitulo(actividadInicial?.titulo || "");
         setDescripcion(actividadInicial?.descripcion || "");
-        setFechaInicio(actividadInicial?.fecha_inicio.split("T")[0] || "");
-        setFechaFin(actividadInicial?.fecha_fin?.split("T")[0] || "");
+        setFechaInicio(
+          actividadInicial ? formatoEntradaDesdeISO(actividadInicial.fecha_inicio) : "",
+        );
+        setFechaFin(
+          actividadInicial?.fecha_fin
+            ? formatoEntradaDesdeISO(actividadInicial.fecha_fin)
+            : "",
+        );
         setColor(actividadInicial?.color_etiqueta || COLORES_ETIQUETA[0]);
       }
     }, 0);
@@ -183,25 +242,22 @@ const ActividadModal = ({
       avisar("Error", "El título y la fecha de inicio son obligatorios.");
       return;
     }
-    const formatoFecha = /^\d{4}-\d{2}-\d{2}$/;
-    if (!formatoFecha.test(fechaInicio.trim())) {
-      avisar("Error", "La fecha de inicio debe tener el formato AAAA-MM-DD.");
-      return;
-    }
-    if (fechaFin.trim() && !formatoFecha.test(fechaFin.trim())) {
-      avisar("Error", "La fecha de fin debe tener el formato AAAA-MM-DD.");
-      return;
-    }
-    const inicioDate = new Date(`${fechaInicio.trim()}T00:00:00`);
-    if (isNaN(inicioDate.getTime())) {
-      avisar("Error", "La fecha de inicio no es válida.");
+    const inicioDate = parsearFechaHoraLibre(fechaInicio);
+    if (!inicioDate) {
+      avisar(
+        "Error",
+        "La fecha de inicio no es válida. Escríbela como AAAA-MM-DD o AAAA-MM-DD HH:mm, o elígela con el calendario.",
+      );
       return;
     }
     let finDate: Date | null = null;
     if (fechaFin.trim()) {
-      finDate = new Date(`${fechaFin.trim()}T00:00:00`);
-      if (isNaN(finDate.getTime())) {
-        avisar("Error", "La fecha de fin no es válida.");
+      finDate = parsearFechaHoraLibre(fechaFin);
+      if (!finDate) {
+        avisar(
+          "Error",
+          "La fecha de fin no es válida. Escríbela como AAAA-MM-DD o AAAA-MM-DD HH:mm, o elígela con el calendario.",
+        );
         return;
       }
     }
@@ -234,6 +290,27 @@ const ActividadModal = ({
           <Text style={styles.modalTitle}>
             {actividadInicial ? "Editar Actividad" : "Nueva Actividad"}
           </Text>
+          {!actividadInicial && (
+            <View>
+              <Text style={styles.plantillasLabel}>Plantillas rápidas</Text>
+              <View style={styles.plantillasFila}>
+                {PLANTILLAS_ACTIVIDAD.map((p) => (
+                  <Pressable
+                    key={p.titulo}
+                    style={[styles.plantillaChip, { borderColor: p.color }]}
+                    onPress={() => {
+                      setTitulo(p.titulo);
+                      setColor(p.color);
+                    }}
+                  >
+                    <Text style={[styles.plantillaChipTexto, { color: p.color }]}>
+                      {p.titulo}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
           <TextInput
             style={styles.input}
             placeholder="Título del evento"
@@ -247,18 +324,21 @@ const ActividadModal = ({
             onChangeText={setDescripcion}
             multiline
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Fecha de inicio (YYYY-MM-DD)"
-            value={fechaInicio}
-            onChangeText={setFechaInicio}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Fecha de fin (opcional, YYYY-MM-DD)"
-            value={fechaFin}
-            onChangeText={setFechaFin}
-          />
+          <View style={{ gap: 12 }}>
+            <CampoFechaHora
+              etiqueta="Fecha y hora de inicio"
+              valor={fechaInicio}
+              onCambiar={setFechaInicio}
+              colorAcento={color}
+            />
+            <CampoFechaHora
+              etiqueta="Fecha y hora de fin"
+              valor={fechaFin}
+              onCambiar={setFechaFin}
+              colorAcento={color}
+              opcional
+            />
+          </View>
           <View style={styles.colorSelector}>
             {COLORES_ETIQUETA.map((c) => (
               <Pressable
@@ -384,9 +464,30 @@ export default function GestionarCronogramaScreen() {
     }
     if (actividades.length === 0) {
       return (
-        <Text style={styles.emptyText}>
-          No hay actividades en el cronograma.
-        </Text>
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons
+              name="calendar-outline"
+              size={34}
+              color={ColoresApp.primario}
+            />
+          </View>
+          <Text style={styles.emptyTitle}>Aún no hay actividades</Text>
+          <Text style={styles.emptyText}>
+            Crea la primera actividad del cronograma: inscripciones, examen,
+            resultados, inscripción a materias, etc.
+          </Text>
+          <Pressable
+            style={styles.emptyBoton}
+            onPress={() => {
+              setActividadEditando(null);
+              setModalVisible(true);
+            }}
+          >
+            <Ionicons name="add" size={18} color="white" />
+            <Text style={styles.emptyBotonTexto}>Crear actividad</Text>
+          </Pressable>
+        </View>
       );
     }
     return (
@@ -415,19 +516,30 @@ export default function GestionarCronogramaScreen() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ title: "Gestionar Cronograma" }} />
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitulo}>Cronograma de Actividades</Text>
+        <View>
+          <Text style={styles.topBarTitulo}>Cronograma de Actividades</Text>
+          <Text style={styles.topBarSubtitulo}>
+            {actividades.length === 0
+              ? "Fechas clave del proceso de admisión"
+              : `${actividades.length} actividad${
+                  actividades.length === 1 ? "" : "es"
+                } programada${actividades.length === 1 ? "" : "s"}`}
+          </Text>
+        </View>
       </View>
       {renderContent()}
-      <Pressable
-        style={styles.fab}
-        onPress={() => {
-          setActividadEditando(null);
-          setModalVisible(true);
-        }}
-      >
-        <Ionicons name="add" size={24} color="white" />
-        <Text style={styles.fabText}>Nueva Actividad</Text>
-      </Pressable>
+      {actividades.length > 0 && (
+        <Pressable
+          style={styles.fab}
+          onPress={() => {
+            setActividadEditando(null);
+            setModalVisible(true);
+          }}
+        >
+          <Ionicons name="add" size={24} color="white" />
+          <Text style={styles.fabText}>Nueva Actividad</Text>
+        </Pressable>
+      )}
 
       <ActividadModal
         visible={modalVisible}
@@ -449,12 +561,52 @@ const styles = StyleSheet.create({
     borderBottomColor: ColoresApp.borde,
   },
   topBarTitulo: { fontSize: 15, fontWeight: "600", color: ColoresApp.oscuro },
+  topBarSubtitulo: {
+    fontSize: 12,
+    color: ColoresApp.textoSecundario,
+    marginTop: 2,
+  },
   listContainer: { padding: 16, paddingBottom: 100 },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 80,
+  },
+  emptyIconCircle: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: `${ColoresApp.primario}14`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: ColoresApp.oscuro,
+    marginBottom: 6,
+  },
   emptyText: {
-    marginTop: 100,
     textAlign: "center",
     color: ColoresApp.textoSecundario,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 22,
+    maxWidth: 320,
   },
+  emptyBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: ColoresApp.primario,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  emptyBotonTexto: { color: "white", fontWeight: "700", fontSize: 14 },
   card: {
     backgroundColor: "white",
     borderRadius: 14,
@@ -539,6 +691,27 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "center",
     paddingVertical: 8,
+  },
+  plantillasLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: ColoresApp.textoSecundario,
+    marginBottom: 6,
+  },
+  plantillasFila: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  plantillaChip: {
+    borderWidth: 1.5,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  plantillaChipTexto: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   colorChip: {
     width: 32,

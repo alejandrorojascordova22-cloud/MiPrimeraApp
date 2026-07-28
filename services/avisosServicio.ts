@@ -17,7 +17,13 @@ export interface Aviso {
   leido?: boolean; // se agrega al consultar para un aspirante específico
 }
 
-/** Publica un nuevo aviso. `carreraId` en null significa "para todas". */
+/**
+ * Publica un nuevo aviso. `carreraId` en null significa "para todas".
+ * Devuelve `ok: true` si el insert no tiró error, aunque `aviso` venga
+ * null (puede pasar si RLS no deja hacer SELECT de la fila recién
+ * insertada). Antes esto se confundía con un fallo y la pantalla se
+ * quedaba sin refrescar; ahora `ok` es la única señal de éxito/error real.
+ */
 export async function publicarAviso({
   titulo,
   contenido,
@@ -28,7 +34,7 @@ export async function publicarAviso({
   contenido: string;
   carreraId?: number | null;
   creadoPor?: number;
-}): Promise<Aviso | null> {
+}): Promise<{ ok: boolean; aviso: Aviso | null }> {
   try {
     const { data, error } = await supabase
       .from('avisos')
@@ -41,10 +47,30 @@ export async function publicarAviso({
       .select()
       .maybeSingle();
     if (error) throw error;
-    return data ?? null;
+    return { ok: true, aviso: data ?? null };
   } catch (e) {
     console.warn('Error en publicarAviso:', e);
-    return null;
+    return { ok: false, aviso: null };
+  }
+}
+
+/**
+ * Desactiva un aviso desde la sesión del ADMIN. Usa un RPC con
+ * `SECURITY DEFINER` para saltar el RLS que solo deja modificar al
+ * `creado_por`. Esto permite a cualquier admin desactivar cualquier aviso.
+ */
+export async function desactivarAvisoComoAdmin(avisoId: number): Promise<boolean> {
+  try {
+    // Asumimos que existe un RPC `desactivar_aviso_admin` similar al de aspirante.
+    // Si no, se puede crear o adaptar el existente.
+    const { error } = await supabase.rpc('desactivar_aviso_admin', {
+      p_aviso_id: avisoId,
+    });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn('Error en desactivarAvisoComoAdmin:', e);
+    return false;
   }
 }
 

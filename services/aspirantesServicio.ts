@@ -115,22 +115,39 @@ export async function obtenerAspirantes(): Promise<Record<string, any>[]> {
 }
 
 /**
- * Elimina un aspirante y sus respuestas asociadas.
+ * Elimina un aspirante y todo lo que depende de él por llave foránea.
  *
  * Antes llamaba a la función RPC `eliminar_aspirante_y_respuestas`, pero esa
  * función no existe en la base de datos (por eso la petición se quedaba
  * "cargando" para siempre, sin error ni respuesta). Como las políticas RLS
  * de `respuestas` y `aspirantes` ya permiten borrar directo, hacemos el
- * borrado aquí mismo, en el mismo orden (respuestas primero, por la FK).
+ * borrado aquí mismo.
+ *
+ * Desde que se agregaron avisos, materiales de estudio y notificaciones
+ * push, existen otras tablas con FK a `aspirantes.id`
+ * (`avisos_lectura`, `material_progreso`, `push_tokens`). Si un aspirante
+ * tiene filas ahí y no se borran primero, Postgres rechaza el DELETE del
+ * aspirante por violación de llave foránea y el botón "Eliminar" no hace
+ * nada visible (el error queda solo en consola). Por eso se borran todas
+ * esas tablas dependientes antes de borrar al aspirante.
  */
 export async function eliminarAspirante(id: number): Promise<boolean> {
   try {
-    // 1. Borrar las respuestas del aspirante primero (respetar FK).
-    const { error: errorRespuestas } = await supabase
-      .from("respuestas")
-      .delete()
-      .eq("aspirante_id", id);
-    if (errorRespuestas) throw errorRespuestas;
+    // 1. Borrar todo lo que depende del aspirante por FK, en cualquier
+    // orden entre sí (no dependen unas de otras).
+    const tablasDependientes = [
+      "respuestas",
+      "avisos_lectura",
+      "material_progreso",
+      "push_tokens",
+    ];
+    for (const tabla of tablasDependientes) {
+      const { error } = await supabase
+        .from(tabla)
+        .delete()
+        .eq("aspirante_id", id);
+      if (error) throw error;
+    }
 
     // 2. Borrar el aspirante. Se pide `select('id')` para confirmar que la
     // fila realmente se eliminó (si RLS bloqueara, Supabase no manda error

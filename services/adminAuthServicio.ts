@@ -185,8 +185,18 @@ export async function actualizarActivoAdmin(id: number, activo: boolean): Promis
 /** Elimina definitivamente a un administrador secundario. */
 export async function eliminarAdministrador(id: number): Promise<boolean> {
   try {
-    const { error } = await supabase.from('administradores').delete().eq('id', id);
+    const { data, error } = await supabase
+      .from('administradores')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
     if (error) throw error;
+
+    if (!data) {
+      console.warn(`eliminarAdministrador: 0 filas afectadas para id ${id} (posible bloqueo de RLS).`);
+      return false;
+    }
     return true;
   } catch (e) {
     console.warn('Error en eliminarAdministrador:', e);

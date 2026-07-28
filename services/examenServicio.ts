@@ -71,6 +71,58 @@ export async function finalizarExamen({
   }
 }
 
+/**
+ * Obtiene todas las respuestas de un aspirante, ya unidas con el texto,
+ * las opciones y la respuesta correcta de cada pregunta. Se usa para
+ * mostrarle al admin el examen "como lo ve el aspirante" pero ya con
+ * las respuestas capturadas, para poder evaluarlas o corregirlas.
+ */
+export async function obtenerRespuestasDeAspirante(
+  idAspirante: number,
+): Promise<Record<string, any>[]> {
+  try {
+    const { data, error } = await supabase
+      .from('respuestas')
+      .select(
+        '*, preguntas(id, pregunta, materia, tipo, opcion_a, opcion_b, ' +
+          'opcion_c, opcion_d, respuesta_correcta, examen_id, ' +
+          'examenes(materia, seccion))',
+      )
+      .eq('aspirante_id', idAspirante);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) {
+    console.warn('Error en obtenerRespuestasDeAspirante:', e);
+    return [];
+  }
+}
+
+/**
+ * Permite al admin corregir manualmente la respuesta que capturó un
+ * aspirante para una pregunta de opción múltiple, y recalcula de
+ * inmediato el resultado final del aspirante con la nueva respuesta.
+ */
+export async function corregirRespuestaAspirante(
+  idAspirante: number,
+  idPregunta: number,
+  nuevaRespuesta: string,
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('respuestas')
+      .update({ respuesta: nuevaRespuesta, revisado: true })
+      .eq('aspirante_id', idAspirante)
+      .eq('pregunta_id', idPregunta);
+    if (error) throw error;
+
+    await actualizarResultadoAspirantePostRevision(idAspirante);
+    return true;
+  } catch (e) {
+    console.warn('Error en corregirRespuestaAspirante:', e);
+    return false;
+  }
+}
+
 /** Obtiene las respuestas de preguntas abiertas pendientes de revisión. */
 export async function obtenerRespuestasAbiertas(): Promise<Record<string, any>[]> {
   try {

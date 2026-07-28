@@ -37,37 +37,54 @@ const ICONO_POR_TIPO_MATERIAL: Record<string, keyof typeof Ionicons.glyphMap> =
     otro: "attach-outline",
   };
 
+const ETIQUETA_POR_TIPO: Record<string, string> = {
+  pdf: "PDF",
+  audio: "Audio",
+  imagen: "Imagen",
+  video: "Video",
+  otro: "Archivo",
+};
+
 const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
   const tipo: string = material.tipo ?? "otro";
   const url: string = material.url_publica;
   const [previewError, setPreviewError] = useState(false);
 
   return (
-    <View style={styles.materialItem}>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
+    <View style={styles.materialCard}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
         <View style={styles.iconoContainer}>
           <Ionicons
             name={ICONO_POR_TIPO_MATERIAL[tipo] ?? "attach-outline"}
             color={ColoresApp.primario}
-            size={16}
+            size={18}
           />
         </View>
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={styles.materialTitulo} numberOfLines={1}>
-            {material.titulo}
-          </Text>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <View style={styles.materialCabecera}>
+            <Text style={styles.materialTitulo} numberOfLines={1}>
+              {material.titulo}
+            </Text>
+            <View style={styles.chipTipo}>
+              <Text style={styles.chipTipoTexto}>
+                {ETIQUETA_POR_TIPO[tipo] ?? "Archivo"}
+              </Text>
+            </View>
+          </View>
           {!!material.descripcion && (
             <Text style={styles.materialDescripcion} numberOfLines={2}>
               {material.descripcion}
             </Text>
           )}
+
+          <Pressable
+            style={styles.botonVerMaterial}
+            onPress={() => Linking.openURL(url)}
+          >
+            <Text style={styles.textoBotonVerMaterial}>Abrir</Text>
+            <Ionicons name="open-outline" size={13} color={ColoresApp.primario} />
+          </Pressable>
         </View>
-        <Pressable
-          style={styles.botonVerMaterial}
-          onPress={() => Linking.openURL(url)}
-        >
-          <Ionicons name="open-outline" size={14} color="white" />
-        </Pressable>
       </View>
 
       {tipo === "imagen" && !previewError && (
@@ -114,7 +131,12 @@ export default function DocumentosAspiranteScreen() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace('/perfil-aspirante')
+          }
+          hitSlop={10}
+        >
           <Ionicons name="arrow-back" size={22} color={ColoresApp.oscuro} />
         </Pressable>
         <Text style={styles.topBarTitulo}>Documentos</Text>
@@ -134,24 +156,41 @@ export default function DocumentosAspiranteScreen() {
             <RefreshControl refreshing={cargando} onRefresh={cargar} />
           }
         >
-          <View style={styles.card}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <View style={styles.iconoContainer}>
-                <Ionicons
-                  name="book-outline"
-                  color={ColoresApp.primario}
-                  size={20}
-                />
+          <Text style={styles.seccionLabel}>Guía oficial</Text>
+          <View style={styles.guiaCard}>
+            <View style={styles.guiaFilaSuperior}>
+              <View style={styles.guiaIconoContainer}>
+                <Ionicons name="book-outline" color="white" size={22} />
               </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.tituloGuia}>Guía de estudio 2026</Text>
-                <Text style={styles.subtituloGuia}>
-                  {urlGuia
-                    ? "Material oficial para prepararte"
-                    : "Aún no hay guía disponible"}
+              <View
+                style={[
+                  styles.chipEstado,
+                  urlGuia ? styles.chipEstadoOk : styles.chipEstadoPendiente,
+                ]}
+              >
+                <Ionicons
+                  name={urlGuia ? "checkmark-circle" : "time-outline"}
+                  size={12}
+                  color={urlGuia ? ColoresApp.exito : ColoresApp.advertencia}
+                />
+                <Text
+                  style={[
+                    styles.chipEstadoTexto,
+                    { color: urlGuia ? ColoresApp.exito : ColoresApp.advertencia },
+                  ]}
+                >
+                  {urlGuia ? "Disponible" : "Próximamente"}
                 </Text>
               </View>
             </View>
+
+            <Text style={styles.tituloGuia}>Guía de estudio 2026</Text>
+            <Text style={styles.subtituloGuia}>
+              {urlGuia
+                ? "Material oficial para prepararte para el examen de admisión."
+                : "Aún no hay una guía publicada. En cuanto esté lista aparecerá aquí."}
+            </Text>
+
             {!!urlGuia && (
               <Pressable
                 style={styles.botonGuia}
@@ -165,16 +204,23 @@ export default function DocumentosAspiranteScreen() {
 
           <Text style={styles.seccionLabel}>Materiales de estudio</Text>
           {materiales.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Aún no hay materiales disponibles.
-            </Text>
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="folder-open-outline"
+                size={28}
+                color={ColoresApp.textoSecundario}
+              />
+              <Text style={styles.emptyText}>
+                Aún no hay materiales disponibles.
+              </Text>
+              <Text style={styles.emptySubtext}>
+                Cuando se publiquen, los verás listados aquí.
+              </Text>
+            </View>
           ) : (
-            <View style={styles.card}>
+            <View style={{ gap: 10 }}>
               {materiales.map((m, i) => (
-                <View key={m.id ?? i}>
-                  <ItemMaterial material={m} />
-                  {i < materiales.length - 1 && <View style={{ height: 10 }} />}
-                </View>
+                <ItemMaterial key={m.id ?? i} material={m} />
               ))}
             </View>
           )}
@@ -199,69 +245,171 @@ const styles = StyleSheet.create({
   topBarTitulo: { fontSize: 16, fontWeight: "700", color: ColoresApp.oscuro },
   scrollContent: { padding: 16, paddingBottom: 40 },
   seccionLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    color: ColoresApp.oscuro,
-    marginTop: 8,
+    color: ColoresApp.textoSecundario,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginTop: 4,
     marginBottom: 10,
   },
-  emptyText: {
-    textAlign: "center",
-    color: ColoresApp.textoSecundario,
-    marginTop: 20,
-  },
-  card: {
+
+  // --- Guía de estudio ---
+  guiaCard: {
     backgroundColor: "white",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
+    padding: 18,
+    marginBottom: 22,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  guiaFilaSuperior: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  guiaIconoContainer: {
+    width: 46,
+    height: 46,
     borderRadius: 14,
+    backgroundColor: ColoresApp.primario,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipEstado: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  chipEstadoOk: { backgroundColor: ColoresApp.exitoFondo },
+  chipEstadoPendiente: { backgroundColor: "#FDF3E1" },
+  chipEstadoTexto: { fontSize: 11, fontWeight: "700" },
+  tituloGuia: {
+    fontWeight: "800",
+    fontSize: 16,
+    color: ColoresApp.oscuro,
+  },
+  subtituloGuia: {
+    fontSize: 12.5,
+    color: ColoresApp.textoSecundario,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  botonGuia: {
+    marginTop: 14,
+    backgroundColor: ColoresApp.primario,
+    borderRadius: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  textoBotonGuia: { color: "white", fontWeight: "700", fontSize: 13.5 },
+
+  // --- Materiales ---
+  materialCard: {
+    backgroundColor: "white",
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
     padding: 14,
-    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   iconoContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: "#F1EBFE",
     alignItems: "center",
     justifyContent: "center",
   },
-  tituloGuia: { fontWeight: "bold", fontSize: 13, color: ColoresApp.oscuro },
-  subtituloGuia: {
-    fontSize: 12,
-    color: ColoresApp.textoSecundario,
-    marginTop: 2,
-  },
-  botonGuia: {
-    marginTop: 12,
-    backgroundColor: ColoresApp.primario,
-    borderRadius: 10,
-    paddingVertical: 10,
+  materialCabecera: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
+    justifyContent: "space-between",
+    gap: 8,
   },
-  textoBotonGuia: { color: "white", fontWeight: "600", fontSize: 13 },
-  materialItem: {},
   materialTitulo: {
-    fontWeight: "bold",
-    fontSize: 12.5,
+    fontWeight: "700",
+    fontSize: 14,
     color: ColoresApp.oscuro,
+    flexShrink: 1,
   },
-  materialDescripcion: { fontSize: 11, color: ColoresApp.textoSecundario },
+  materialDescripcion: {
+    fontSize: 12,
+    color: ColoresApp.textoSecundario,
+    marginTop: 3,
+    lineHeight: 17,
+  },
+  chipTipo: {
+    backgroundColor: ColoresApp.primarioFondo,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  chipTipoTexto: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ColoresApp.primario,
+  },
   botonVerMaterial: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: ColoresApp.primario,
+    marginTop: 10,
+    alignSelf: "flex-start",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: ColoresApp.primarioFondo,
+  },
+  textoBotonVerMaterial: {
+    color: ColoresApp.primario,
+    fontWeight: "700",
+    fontSize: 12,
   },
   materialImagenPreview: {
     width: "100%",
-    height: 140,
-    borderRadius: 10,
-    marginTop: 8,
+    height: 150,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+
+  // --- Estado vacío ---
+  emptyState: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
+    borderStyle: "dashed",
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+  emptyText: {
+    textAlign: "center",
+    color: ColoresApp.oscuro,
+    fontWeight: "600",
+    fontSize: 13,
+    marginTop: 10,
+  },
+  emptySubtext: {
+    textAlign: "center",
+    color: ColoresApp.textoSecundario,
+    fontSize: 11.5,
+    marginTop: 4,
   },
 });

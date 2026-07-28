@@ -1,19 +1,21 @@
-import { ColoresApp } from '@/constants/coloresApp';
-import { obtenerCarreras } from '@/services/carrerasServicio';
+import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
+import { ColoresApp } from "@/constants/coloresApp";
 import {
   obtenerAspirantes,
   obtenerAspirantesPorCarrera,
-} from '@/services/aspirantesServicio';
-import { enviarPushNotificacion } from '@/services/pushNotificacionesServicio';
+} from "@/services/aspirantesServicio";
 import {
   desactivarAviso,
   obtenerTodosLosAvisos,
   publicarAviso,
   type Aviso,
-} from '@/services/avisosServicio';
-import { Ionicons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+} from "@/services/avisosServicio";
+import { obtenerCarreras } from "@/services/carrerasServicio";
+import { enviarPushNotificacion } from "@/services/pushNotificacionesServicio";
+import { supabase } from "@/services/supabaseClient";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -27,7 +29,7 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
+} from "react-native";
 
 function avisar(titulo: string, mensaje?: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -85,12 +87,15 @@ const PublicarAvisoModal = ({
   const [publicando, setPublicando] = useState(false);
 
   useEffect(() => {
-    if (visible) {
-      setTitulo('');
-      setContenido('');
-      setCarreraId(null);
-    }
-  }, [visible]);
+    const id = setTimeout(() => {
+      if (visible) {
+        setTitulo('');
+        setContenido('');
+        setCarreraId(null);
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [visible, carreras]);
 
   const handlePublicar = async () => {
     if (!titulo.trim() || !contenido.trim()) {
@@ -99,36 +104,62 @@ const PublicarAvisoModal = ({
     }
     setPublicando(true);
     try {
-      const res = await publicarAviso({ titulo: titulo.trim(), contenido: contenido.trim(), carreraId });
-      if (res) {
-        onGuardado();
-        onClose();
+      const { aviso, ok } = await publicarAviso({
+        titulo: titulo.trim(),
+        contenido: contenido.trim(),
+        carreraId,
+      });
 
-        // Además de quedar en el tablón, se manda como push a los
-        // aspirantes destinatarios (todos, o solo los de esa carrera).
-        // Esto no bloquea la publicación: si el push falla u omite por
-        // límite, el aviso ya quedó publicado de todas formas.
-        (async () => {
-          try {
-            const destinatarios = carreraId
-              ? await obtenerAspirantesPorCarrera(carreraId)
-              : await obtenerAspirantes();
-            const aspiranteIds = destinatarios.map((a: any) => a.id).filter(Boolean);
-            if (aspiranteIds.length > 0) {
-              await enviarPushNotificacion({
-                aspiranteIds,
-                titulo: titulo.trim(),
-                cuerpo: contenido.trim(),
-                datos: { tipo: 'aviso', avisoId: res.id },
-              });
-            }
-          } catch (e) {
-            console.warn('Error al enviar push del aviso:', e);
-          }
-        })();
-      } else {
+      if (!ok) {
+        // Solo esto es un fallo real (Supabase tiró un error en el insert).
         avisar('Error', 'No se pudo publicar el aviso.');
+        return;
       }
+
+      // El insert sí funcionó. `aviso` puede venir null si RLS no deja
+      // leer la fila recién creada, pero eso no significa que falló:
+      // por eso SIEMPRE refrescamos la lista aquí, en vez de solo
+      // hacerlo cuando `aviso` no es null (ese era el bug: la pantalla
+      // se quedaba sin actualizar y parecía que había que refrescar a mano).
+      onGuardado();
+      onClose();
+
+      // Además de quedar en el tablón, se manda como push a los
+      // aspirantes destinatarios (todos, o solo los de esa carrera).
+      // Esto no bloquea la publicación: si el push falla u omite por
+      // límite, el aviso ya quedó publicado de todas formas.
+      (async () => {
+        try {
+          const destinatarios = carreraId
+            ? await obtenerAspirantesPorCarrera(carreraId)
+            : await obtenerAspirantes();
+          const aspiranteIds = destinatarios.map((a: any) => a.id).filter(Boolean);
+          if (aspiranteIds.length > 0) {
+            // Push nativo (Expo) para celulares con build compilado.
+            await enviarPushNotificacion({
+              aspiranteIds,
+              titulo: titulo.trim(),
+              cuerpo: contenido.trim(),
+              datos: { tipo: 'aviso', avisoId: aviso?.id },
+            });
+            // Web Push real para navegador, llega aunque esté cerrado.
+            try {
+              await supabase.functions.invoke('enviar-push-web', {
+                body: {
+                  aspiranteIds,
+                  titulo: titulo.trim(),
+                  cuerpo: contenido.trim(),
+                  datos: { tipo: 'aviso', avisoId: aviso?.id },
+                },
+              });
+            } catch (e) {
+              console.warn('Error al enviar web push del aviso:', e);
+            }
+          }
+        } catch (e) {
+          console.warn('Error al enviar push del aviso:', e);
+        }
+      })();
     } finally {
       setPublicando(false);
     }
@@ -200,7 +231,30 @@ export default function GestionarAvisosScreen() {
   }, []);
 
   useEffect(() => {
-    cargar();
+    const id = setTimeout(() => {
+      cargar();
+    }, 0);
+    return () => clearTimeout(id);
+  }, [cargar]);
+
+  // Autorefresco en vivo: si el aviso se publicó desde otra pestaña, otro
+  // admin, o el insert no devolvió la fila por RLS, esto igual actualiza
+  // la lista solo, sin que tengas que recargar la página a mano.
+  useEffect(() => {
+    const canal = supabase
+      .channel('gestionar-avisos')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'avisos' },
+        () => cargar()
+      )
+      .subscribe((status) => {
+        console.log('Realtime avisos (gestionar-avisos):', status);
+      });
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, [cargar]);
 
   const handleDesactivar = (aviso: Aviso) => {
@@ -225,6 +279,8 @@ export default function GestionarAvisosScreen() {
       <View style={styles.topBar}>
         <Text style={styles.topBarTitulo}>Avisos para aspirantes</Text>
       </View>
+
+      <BannerPermisoNotificaciones />
 
       {cargando && avisos.length === 0 ? (
         <ActivityIndicator style={{ marginTop: 60 }} size="large" color={ColoresApp.primario} />

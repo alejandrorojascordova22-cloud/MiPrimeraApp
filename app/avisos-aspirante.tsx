@@ -1,47 +1,82 @@
-import { ColoresApp } from '@/constants/coloresApp';
+import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
+import { useConfirm } from "@/components/ConfirmDialog";
+import { ColoresApp } from "@/constants/coloresApp";
 import {
-  contarAvisosNoLeidos,
-  marcarAvisoLeido,
-  obtenerAvisosParaAspirante,
-  type Aviso,
-} from '@/services/avisosServicio';
-import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+    marcarAvisoLeido,
+    obtenerAvisosParaAspirante,
+    type Aviso,
+} from "@/services/avisosServicio";
+import { supabase } from "@/services/supabaseClient";
+import { mostrarNotificacionWeb } from "@/services/webNotificacionesServicio";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+    ActivityIndicator,
+    FlatList,
+    Pressable,
+    RefreshControl,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 
 const formatDate = (iso?: string) => {
-  if (!iso) return '—';
+  if (!iso) return "—";
   try {
     const dt = new Date(iso);
-    return dt.toLocaleString('es-MX', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return dt.toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
-    return '—';
+    return "—";
   }
 };
 
-const AvisoCard = ({ aviso, onAbrir }: { aviso: Aviso; onAbrir: () => void }) => (
-  <Pressable style={[styles.card, !aviso.leido && styles.cardNoLeida]} onPress={onAbrir}>
+const AvisoCard = ({
+  aviso,
+  onAbrir,
+  onOcultar,
+}: {
+  aviso: Aviso;
+  onAbrir: () => void;
+  onOcultar: () => void;
+}) => (
+  <Pressable
+    style={[
+      styles.card,
+      !aviso.leido && styles.cardNoLeida,
+      aviso.leido && styles.cardLeida,
+    ]}
+    onPress={onAbrir}
+  >
     <View style={styles.cardHeader}>
       {!aviso.leido && <View style={styles.puntoNoLeido} />}
-      <Text style={styles.cardTitulo} numberOfLines={2}>{aviso.titulo}</Text>
+      <Text style={styles.cardTitulo} numberOfLines={2}>
+        {aviso.titulo}
+      </Text>
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          onOcultar();
+        }}
+        hitSlop={8}
+      >
+        <Ionicons
+          name="eye-off-outline"
+          size={18}
+          color={ColoresApp.textoSecundario}
+        />
+      </Pressable>
     </View>
-    <Text style={styles.cardContenido} numberOfLines={3}>{aviso.contenido}</Text>
+    <Text style={styles.cardContenido} numberOfLines={3}>
+      {aviso.contenido}
+    </Text>
     <Text style={styles.cardFecha}>{formatDate(aviso.creado_en)}</Text>
   </Pressable>
 );
@@ -58,6 +93,7 @@ export default function AvisosAspiranteScreen() {
     carreraId?: string;
   }>();
 
+  const confirmar = useConfirm();
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisoAbierto, setAvisoAbierto] = useState<Aviso | null>(null);
@@ -80,50 +116,139 @@ export default function AvisosAspiranteScreen() {
   }, [idAspirante, idCarrera]);
 
   useEffect(() => {
-    cargar();
+    const id = setTimeout(() => {
+      cargar();
+    }, 0);
+    return () => clearTimeout(id);
   }, [cargar]);
+
+  // Autorefresco en vivo + notificación del navegador cuando el admin
+  // publica un aviso nuevo, sin que el aspirante tenga que recargar.
+  useEffect(() => {
+    if (!idAspirante || !idCarrera) return;
+
+    const canal = supabase
+      .channel(`avisos-aspirante-${idAspirante}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "avisos" },
+        (payload) => {
+          const nuevo = payload.new as Aviso;
+          // Solo notificar/refrescar si el aviso aplica a este aspirante
+          // (para todas las carreras, o específico de la suya).
+          if (nuevo.carrera_id === null || nuevo.carrera_id === idCarrera) {
+            cargar();
+            mostrarNotificacionWeb(nuevo.titulo, {
+              cuerpo: nuevo.contenido,
+              datos: { avisoId: nuevo.id },
+            });
+          }
+        },
+      )
+      .subscribe((status) => {
+        console.log("Realtime avisos (avisos-aspirante):", status);
+      });
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+  }, [idAspirante, idCarrera, cargar]);
 
   const abrirAviso = async (aviso: Aviso) => {
     setAvisoAbierto(aviso);
     if (!aviso.leido) {
       await marcarAvisoLeido(aviso.id, idAspirante);
-      setAvisos((prev) => prev.map((a) => (a.id === aviso.id ? { ...a, leido: true } : a)));
+      setAvisos((prev) =>
+        prev.map((a) => (a.id === aviso.id ? { ...a, leido: true } : a)),
+      );
     }
+  };
+
+  /**
+   * Oculta un aviso para este aspirante marcándolo como leído.
+   * La acción es reversible si el aspirante vuelve a entrar a la pantalla.
+   */
+  const ocultarAviso = (aviso: Aviso) => {
+    confirmar({
+      titulo: "Ocultar aviso",
+      mensaje: `¿Ocultar el aviso "${aviso.titulo}"? Dejarás de verlo en esta lista.`,
+      textoConfirmar: "Sí, ocultar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const ok = await marcarAvisoLeido(aviso.id, idAspirante);
+        if (ok) {
+          setAvisos((prev) =>
+            prev.map((a) => (a.id === aviso.id ? { ...a, leido: true } : a)),
+          );
+          if (avisoAbierto?.id === aviso.id) setAvisoAbierto(null);
+        }
+      },
+    });
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace('/perfil-aspirante')
+          }
+          hitSlop={10}
+        >
           <Ionicons name="arrow-back" size={22} color={ColoresApp.oscuro} />
         </Pressable>
         <Text style={styles.topBarTitulo}>Avisos</Text>
         <View style={{ width: 22 }} />
       </View>
 
+      <BannerPermisoNotificaciones aspiranteId={idAspirante || undefined} />
+
       {cargando ? (
-        <ActivityIndicator style={{ marginTop: 60 }} size="large" color={ColoresApp.primario} />
+        <ActivityIndicator
+          style={{ marginTop: 60 }}
+          size="large"
+          color={ColoresApp.primario}
+        />
       ) : avisos.length === 0 ? (
         <Text style={styles.emptyText}>No hay avisos por ahora.</Text>
       ) : (
         <FlatList
-          data={avisos}
+          data={avisos.filter((a) => !a.leido)}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContainer}
-          renderItem={({ item }) => <AvisoCard aviso={item} onAbrir={() => abrirAviso(item)} />}
-          refreshControl={<RefreshControl refreshing={cargando} onRefresh={cargar} />}
+          renderItem={({ item }) => (
+            <AvisoCard
+              aviso={item}
+              onAbrir={() => abrirAviso(item)}
+              onOcultar={() => ocultarAviso(item)}
+            />
+          )}
+          refreshControl={
+            <RefreshControl refreshing={cargando} onRefresh={cargar} />
+          }
         />
       )}
 
       {avisoAbierto && (
-        <Pressable style={styles.modalBackdrop} onPress={() => setAvisoAbierto(null)}>
-          <Pressable style={styles.modalContainer} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setAvisoAbierto(null)}
+        >
+          <Pressable
+            style={styles.modalContainer}
+            onPress={(e) => e.stopPropagation()}
+          >
             <Text style={styles.modalTitulo}>{avisoAbierto.titulo}</Text>
-            <Text style={styles.modalFecha}>{formatDate(avisoAbierto.creado_en)}</Text>
+            <Text style={styles.modalFecha}>
+              {formatDate(avisoAbierto.creado_en)}
+            </Text>
             <Text style={styles.modalContenido}>{avisoAbierto.contenido}</Text>
-            <Pressable style={styles.modalCerrar} onPress={() => setAvisoAbierto(null)}>
-              <Text style={{ color: 'white', fontWeight: '600' }}>Cerrar</Text>
+            <Pressable
+              style={styles.modalCerrar}
+              onPress={() => setAvisoAbierto(null)}
+            >
+              <Text style={{ color: "white", fontWeight: "600" }}>Cerrar</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -135,20 +260,24 @@ export default function AvisosAspiranteScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: ColoresApp.fondo },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
-  topBarTitulo: { fontSize: 16, fontWeight: '700', color: ColoresApp.oscuro },
-  emptyText: { marginTop: 100, textAlign: 'center', color: ColoresApp.textoSecundario },
+  topBarTitulo: { fontSize: 16, fontWeight: "700", color: ColoresApp.oscuro },
+  emptyText: {
+    marginTop: 100,
+    textAlign: "center",
+    color: ColoresApp.textoSecundario,
+  },
   listContainer: { padding: 16, gap: 12 },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
@@ -156,32 +285,46 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cardNoLeida: { borderColor: ColoresApp.primario },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  puntoNoLeido: { width: 8, height: 8, borderRadius: 4, backgroundColor: ColoresApp.primario },
-  cardTitulo: { fontSize: 14, fontWeight: '700', color: ColoresApp.oscuro, flex: 1 },
+  cardLeida: { opacity: 0.6 },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  puntoNoLeido: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: ColoresApp.primario,
+  },
+  cardTitulo: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: ColoresApp.oscuro,
+    flex: 1,
+  },
   cardContenido: { fontSize: 13, color: ColoresApp.texto, marginTop: 6 },
   cardFecha: { fontSize: 11, color: ColoresApp.textoSecundario, marginTop: 8 },
   modalBackdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   modalContainer: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
-    width: '100%',
+    width: "100%",
     maxWidth: 420,
     gap: 10,
   },
-  modalTitulo: { fontSize: 16, fontWeight: '700', color: ColoresApp.oscuro },
+  modalTitulo: { fontSize: 16, fontWeight: "700", color: ColoresApp.oscuro },
   modalFecha: { fontSize: 11, color: ColoresApp.textoSecundario },
   modalContenido: { fontSize: 14, color: ColoresApp.texto, lineHeight: 20 },
   modalCerrar: {
-    alignSelf: 'flex-end',
+    alignSelf: "flex-end",
     backgroundColor: ColoresApp.primario,
     paddingHorizontal: 18,
     paddingVertical: 9,

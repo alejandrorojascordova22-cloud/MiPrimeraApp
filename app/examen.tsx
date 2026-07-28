@@ -76,8 +76,16 @@ export default function PantallaExamen() {
   const [enviado, setEnviado] = useState(false);
   const [segundosRestantes, setSegundosRestantes] = useState(30 * 60);
   const [mostrarBadgeGuardado, setMostrarBadgeGuardado] = useState(false);
+  const [enLinea, setEnLinea] = useState(() =>
+    Platform.OS === "web" && typeof navigator !== "undefined"
+      ? navigator.onLine
+      : true,
+  );
+  const [haySincronizacionPendiente, setHaySincronizacionPendiente] =
+    useState(false);
 
   const intentosSalida = useRef(0);
+  const salioEn = useRef<number | null>(null);
   const enviarExamenRef = useRef<(porTiempo?: boolean) => void>(() => {});
   const claveAlumno = `examen_${aspirante?.folio ?? "sin_folio"}`;
 
@@ -164,13 +172,16 @@ export default function PantallaExamen() {
         if (indiceGuardado[1]) setIndiceActual(JSON.parse(indiceGuardado[1]));
         if (tiempoGuardado[1])
           setSegundosRestantes(JSON.parse(tiempoGuardado[1]));
-      } catch (error) {
+      } catch {
         Alert.alert("Error", "No se pudieron cargar las preguntas del examen.");
       } finally {
         setCargando(false);
       }
     };
     cargarExamen();
+    // Efecto de solo montaje: se ejecuta una vez al abrir la pantalla del
+    // examen; `aspirante` y `router` se leen del cierre inicial a propósito.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- Temporizador ---
@@ -196,20 +207,55 @@ export default function PantallaExamen() {
     return () => clearInterval(timer);
   }, [cargando, enviado, claveAlumno]);
 
+  // --- Detección de conexión a internet ---
+  // Solo aplica en web (donde el navegador expone estos eventos). Sirve
+  // para avisar al aspirante que sus respuestas se siguen guardando en el
+  // dispositivo aunque se vaya el internet, y para reintentar el envío al
+  // servidor cuando la conexión regrese.
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const alConectar = () => setEnLinea(true);
+      const alDesconectar = () => setEnLinea(false);
+      window.addEventListener("online", alConectar);
+      window.addEventListener("offline", alDesconectar);
+      return () => {
+        window.removeEventListener("online", alConectar);
+        window.removeEventListener("offline", alDesconectar);
+      };
+    }
+  }, []);
+
   // --- Detección de cambio de estado de la app ---
+  // Antes se contaba como "intento de salir" cualquier pérdida de foco,
+  // incluso momentánea (por ejemplo, una notificación, cambiar de
+  // pestaña un instante, o el navegador perdiendo el foco). Eso hacía que
+  // el aviso apareciera todo el tiempo. Ahora solo cuenta si la app
+  // permanece en segundo plano más de unos segundos, que es la señal real
+  // de que el aspirante salió de la aplicación.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (
-        !enviado &&
-        (nextAppState === "background" || nextAppState === "inactive")
-      ) {
+      if (enviado) return;
+
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        salioEn.current = Date.now();
+        return;
+      }
+
+      if (nextAppState === "active" && salioEn.current) {
+        const segundosFuera = (Date.now() - salioEn.current) / 1000;
+        salioEn.current = null;
+        // Menos de 3 segundos: casi seguro fue un cambio de foco pasajero
+        // (notificación, pantalla de bloqueo momentánea, etc.), no un
+        // intento real de salir del examen.
+        if (segundosFuera < 3) return;
+
         intentosSalida.current += 1;
         if (intentosSalida.current >= 2) {
           enviarExamenRef.current(true);
         } else {
           Alert.alert(
             "Advertencia de Seguridad",
-            "Detectamos que intentaste salir de la aplicación. Si sales una vez más, tu examen se enviará automáticamente.",
+            "Detectamos que saliste de la aplicación durante el examen. Si sales una vez más, tu examen se enviará automáticamente.",
           );
         }
       }
@@ -218,6 +264,55 @@ export default function PantallaExamen() {
     return () => subscription.remove();
   }, [enviado]);
 
+  const claveePendientes = `${claveAlumno}_pendientes`;
+
+  const sincronizarPendientes = useCallback(async () => {
+    try {
+      const json = await AsyncStorage.getItem(claveePendientes);
+      const pendientes: number[] = json ? JSON.parse(json) : [];
+      if (pendientes.length === 0) {
+        setHaySincronizacionPendiente(false);
+        return;
+      }
+      const siguenPendientes: number[] = [];
+      for (const idx of pendientes) {
+        const respuestaGuardada = await AsyncStorage.getItem(
+          `${claveAlumno}_p${idx}`,
+        );
+        if (!respuestaGuardada || !preguntas[idx]) continue;
+        try {
+          await guardarRespuesta({
+            idAspirante: aspirante!.id,
+            idPregunta: preguntas[idx].id,
+            respuesta: respuestaGuardada,
+          });
+        } catch {
+          siguenPendientes.push(idx);
+        }
+      }
+      await AsyncStorage.setItem(
+        claveePendientes,
+        JSON.stringify(siguenPendientes),
+      );
+      setHaySincronizacionPendiente(siguenPendientes.length > 0);
+    } catch {
+      // Si ni siquiera se pudo leer el respaldo local, se reintentará en
+      // la próxima reconexión.
+    }
+  }, [claveAlumno, claveePendientes, preguntas, aspirante]);
+
+  // En cuanto vuelve la conexión, intenta reenviar las respuestas que se
+  // quedaron guardadas solo en el dispositivo. Se agenda con setTimeout
+  // para que la sincronización (y sus setState) ocurra fuera del cuerpo
+  // síncrono del efecto.
+  useEffect(() => {
+    if (!enLinea) return;
+    const id = setTimeout(() => {
+      sincronizarPendientes();
+    }, 0);
+    return () => clearTimeout(id);
+  }, [enLinea, sincronizarPendientes]);
+
   const seleccionarOpcion = async (opcionElegida: string) => {
     if (!aspirante) return;
     const nuevasRespuestas = [...respuestas];
@@ -225,15 +320,33 @@ export default function PantallaExamen() {
     setRespuestas(nuevasRespuestas);
     setMostrarBadgeGuardado(true);
 
+    // Se guarda primero en el dispositivo: esto nunca falla por falta de
+    // internet, así que la respuesta del aspirante no se pierde aunque se
+    // vaya la conexión o se apague el dispositivo antes de sincronizar.
     await AsyncStorage.setItem(
       `${claveAlumno}_p${indiceActual}`,
       opcionElegida,
     );
-    await guardarRespuesta({
-      idAspirante: aspirante.id,
-      idPregunta: preguntas[indiceActual].id,
-      respuesta: opcionElegida,
-    });
+    try {
+      await guardarRespuesta({
+        idAspirante: aspirante.id,
+        idPregunta: preguntas[indiceActual].id,
+        respuesta: opcionElegida,
+      });
+    } catch {
+      // Sin conexión (u otro error de red): se marca como pendiente para
+      // reintentar automáticamente en cuanto vuelva el internet.
+      const json = await AsyncStorage.getItem(claveePendientes);
+      const pendientes: number[] = json ? JSON.parse(json) : [];
+      if (!pendientes.includes(indiceActual)) {
+        pendientes.push(indiceActual);
+        await AsyncStorage.setItem(
+          claveePendientes,
+          JSON.stringify(pendientes),
+        );
+      }
+      setHaySincronizacionPendiente(true);
+    }
 
     setTimeout(() => setMostrarBadgeGuardado(false), 2000);
   };
@@ -268,7 +381,7 @@ export default function PantallaExamen() {
 
           // Limpiar AsyncStorage
           const keys = preguntas.map((_, i) => `${claveAlumno}_p${i}`);
-          keys.push(`${claveAlumno}_indice`, `${claveAlumno}_tiempo`);
+          keys.push(`${claveAlumno}_indice`, `${claveAlumno}_tiempo`, claveePendientes);
           await AsyncStorage.multiRemove(keys);
 
           // Navegar a resultados
@@ -289,7 +402,7 @@ export default function PantallaExamen() {
               fechaFin: fechaEnvioISO,
             },
           });
-        } catch (error) {
+        } catch {
           Alert.alert(
             "Error",
             "No se pudo enviar el examen. Intenta de nuevo.",
@@ -322,6 +435,7 @@ export default function PantallaExamen() {
       preguntas,
       respuestas,
       claveAlumno,
+      claveePendientes,
       router,
       segundosRestantes,
     ],
@@ -409,8 +523,25 @@ export default function PantallaExamen() {
 
           {mostrarBadgeGuardado && (
             <View style={styles.guardadoBadge}>
-              <Ionicons name="checkmark-circle" color="green" size={14} />
-              <Text style={styles.guardadoTexto}>Respuesta guardada</Text>
+              <Ionicons
+                name={enLinea ? "checkmark-circle" : "cloud-offline-outline"}
+                color={enLinea ? "green" : "#B8860B"}
+                size={14}
+              />
+              <Text style={styles.guardadoTexto}>
+                {enLinea ? "Respuesta guardada" : "Guardada en el dispositivo"}
+              </Text>
+            </View>
+          )}
+
+          {(!enLinea || haySincronizacionPendiente) && (
+            <View style={styles.conexionBanner}>
+              <Ionicons name="cloud-offline-outline" size={16} color="#B8860B" />
+              <Text style={styles.conexionBannerTexto}>
+                {!enLinea
+                  ? "Sin conexión a internet: tus respuestas se están guardando en este dispositivo y se enviarán en cuanto vuelva la conexión."
+                  : "Sincronizando respuestas guardadas mientras no había conexión..."}
+              </Text>
             </View>
           )}
         </View>
@@ -795,6 +926,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     marginLeft: 4,
+  },
+  conexionBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FFF7E0",
+    borderWidth: 1,
+    borderColor: "#F0D590",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+  },
+  conexionBannerTexto: {
+    flex: 1,
+    fontSize: 11,
+    color: "#7A5B00",
   },
   footer: {
     padding: 16,

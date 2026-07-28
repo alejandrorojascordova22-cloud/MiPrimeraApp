@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ColoresApp } from "@/constants/coloresApp";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
@@ -13,11 +14,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -27,6 +29,324 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+
+// Alert.alert con varios botones no funciona en web (react-native-web solo
+// hace un window.alert de solo-lectura y nunca dispara los onPress), así que
+// ahí usamos window.confirm en su lugar para que el botón de eliminar sí
+// ejecute la acción.
+function confirmarAccion(
+  titulo: string,
+  mensaje: string,
+  onConfirmar: () => void,
+) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    if (window.confirm(`${titulo}\n\n${mensaje}`)) onConfirmar();
+    return;
+  }
+  Alert.alert(titulo, mensaje, [
+    { text: "Cancelar" },
+    { text: "Eliminar", style: "destructive", onPress: onConfirmar },
+  ]);
+}
+
+// Variante de confirmarAccion para ofrecer "Recuperar" o "Descartar" un
+// borrador guardado localmente. Misma limitación de Alert en web.
+function confirmarAccionInfo(
+  titulo: string,
+  mensaje: string,
+  onRecuperar: () => void,
+  onDescartar: () => void,
+) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    if (window.confirm(`${titulo}\n\n${mensaje}`)) onRecuperar();
+    else onDescartar();
+    return;
+  }
+  Alert.alert(titulo, mensaje, [
+    { text: "Descartar", style: "destructive", onPress: onDescartar },
+    { text: "Recuperar", onPress: onRecuperar },
+  ]);
+}
+
+const MESES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];
+const DIAS_SEMANA = ["D", "L", "M", "M", "J", "V", "S"];
+
+function pad2(n: number) {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+function formatearFechaHoraLegible(valor: string) {
+  if (!valor) return "";
+  const [fecha, hora] = valor.split("T");
+  const [y, m, d] = (fecha || "").split("-").map(Number);
+  if (!y || !m || !d) return valor;
+  const base = `${d} de ${MESES[m - 1]} de ${y}`;
+  return hora ? `${base}, ${hora}` : base;
+}
+
+// Campo de fecha y hora real y multiplataforma: se puede escribir a mano
+// (sin forzar formato mientras se edita) o elegir con un calendario propio
+// con selector de hora, construido sin dependencias nativas, así funciona
+// igual en web, iOS y Android (incluido Expo Go).
+function CampoFecha({
+  value,
+  onChange,
+  style,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  style?: any;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [mesActual, setMesActual] = useState(new Date().getMonth());
+  const [anioActual, setAnioActual] = useState(new Date().getFullYear());
+  const [diaSeleccionado, setDiaSeleccionado] = useState<number | null>(null);
+  const [hora, setHora] = useState(12);
+  const [minuto, setMinuto] = useState(0);
+
+  const abrirCalendario = () => {
+    const [fechaParte, horaParte] = (value || "").split("T");
+    const partes = (fechaParte || "").split("-").map(Number);
+    const base =
+      partes.length === 3 && partes[0]
+        ? new Date(partes[0], partes[1] - 1, partes[2])
+        : new Date();
+    setMesActual(base.getMonth());
+    setAnioActual(base.getFullYear());
+    setDiaSeleccionado(partes.length === 3 && partes[0] ? partes[2] : null);
+    if (horaParte) {
+      const [h, min] = horaParte.split(":").map(Number);
+      setHora(Number.isFinite(h) ? h : 12);
+      setMinuto(Number.isFinite(min) ? min : 0);
+    } else {
+      setHora(12);
+      setMinuto(0);
+    }
+    setVisible(true);
+  };
+
+  const cambiarMes = (delta: number) => {
+    let m = mesActual + delta;
+    let a = anioActual;
+    if (m < 0) {
+      m = 11;
+      a -= 1;
+    } else if (m > 11) {
+      m = 0;
+      a += 1;
+    }
+    setMesActual(m);
+    setAnioActual(a);
+  };
+
+  const ajustarHora = (delta: number) => {
+    setHora((h) => (h + delta + 24) % 24);
+  };
+  const ajustarMinuto = (delta: number) => {
+    setMinuto((m) => (m + delta + 60) % 60);
+  };
+
+  const aplicar = () => {
+    if (diaSeleccionado == null) {
+      setVisible(false);
+      return;
+    }
+    const nuevo = `${anioActual}-${pad2(mesActual + 1)}-${pad2(
+      diaSeleccionado,
+    )}T${pad2(hora)}:${pad2(minuto)}`;
+    onChange(nuevo);
+    setVisible(false);
+  };
+
+  const primerDiaSemana = new Date(anioActual, mesActual, 1).getDay();
+  const diasDelMes = new Date(anioActual, mesActual + 1, 0).getDate();
+  const celdas: (number | null)[] = [
+    ...Array(primerDiaSemana).fill(null),
+    ...Array.from({ length: diasDelMes }, (_, i) => i + 1),
+  ];
+  const filas: (number | null)[][] = [];
+  for (let i = 0; i < celdas.length; i += 7) {
+    filas.push(celdas.slice(i, i + 7));
+  }
+
+  const hoy = new Date();
+  const esHoy = (dia: number) =>
+    dia === hoy.getDate() &&
+    mesActual === hoy.getMonth() &&
+    anioActual === hoy.getFullYear();
+
+  return (
+    <>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TextInput
+          style={[styles.input, { flex: 1 }, style]}
+          value={value}
+          onChangeText={onChange}
+          placeholder="AAAA-MM-DD HH:mm (escribe o usa el calendario)"
+          placeholderTextColor={ACCENT.textoTenue}
+        />
+        <Pressable
+          style={styles.calendarioBotonAbrir}
+          onPress={abrirCalendario}
+          hitSlop={6}
+        >
+          <Ionicons name="calendar-outline" size={18} color={ACCENT.primario} />
+        </Pressable>
+      </View>
+      {!!value && (
+        <Text style={styles.hintTexto}>{formatearFechaHoraLegible(value)}</Text>
+      )}
+
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setVisible(false)}
+      >
+        <Pressable
+          style={styles.calendarioOverlay}
+          onPress={() => setVisible(false)}
+        >
+          <Pressable style={styles.calendarioCard} onPress={() => {}}>
+            <View style={styles.calendarioHeader}>
+              <Pressable onPress={() => cambiarMes(-1)} hitSlop={8}>
+                <Ionicons name="chevron-back" size={20} color={ACCENT.texto} />
+              </Pressable>
+              <Text style={styles.calendarioHeaderTexto}>
+                {MESES[mesActual]} {anioActual}
+              </Text>
+              <Pressable onPress={() => cambiarMes(1)} hitSlop={8}>
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={ACCENT.texto}
+                />
+              </Pressable>
+            </View>
+
+            <View style={styles.calendarioFilaSemana}>
+              {DIAS_SEMANA.map((d, i) => (
+                <Text key={i} style={styles.calendarioDiaSemana}>
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            {filas.map((fila, i) => (
+              <View key={i} style={styles.calendarioFila}>
+                {fila.map((dia, j) =>
+                  dia === null ? (
+                    <View key={j} style={styles.calendarioCelda} />
+                  ) : (
+                    <Pressable
+                      key={j}
+                      style={[
+                        styles.calendarioCelda,
+                        styles.calendarioCeldaTocable,
+                        diaSeleccionado === dia &&
+                          styles.calendarioCeldaSeleccionada,
+                      ]}
+                      onPress={() => setDiaSeleccionado(dia)}
+                    >
+                      <Text
+                        style={[
+                          styles.calendarioCeldaTexto,
+                          esHoy(dia) &&
+                            diaSeleccionado !== dia &&
+                            styles.calendarioCeldaHoyTexto,
+                          diaSeleccionado === dia &&
+                            styles.calendarioCeldaSeleccionadaTexto,
+                        ]}
+                      >
+                        {dia}
+                      </Text>
+                    </Pressable>
+                  ),
+                )}
+              </View>
+            ))}
+
+            <View style={styles.calendarioHoraFila}>
+              <Text style={styles.calendarioHoraLabel}>Hora</Text>
+              <View style={styles.calendarioStepper}>
+                <Pressable
+                  onPress={() => ajustarHora(-1)}
+                  hitSlop={8}
+                  style={styles.calendarioStepperBoton}
+                >
+                  <Ionicons name="remove" size={16} color={ACCENT.texto} />
+                </Pressable>
+                <Text style={styles.calendarioStepperValor}>
+                  {pad2(hora)}:{pad2(minuto)}
+                </Text>
+                <Pressable
+                  onPress={() => ajustarHora(1)}
+                  hitSlop={8}
+                  style={styles.calendarioStepperBoton}
+                >
+                  <Ionicons name="add" size={16} color={ACCENT.texto} />
+                </Pressable>
+              </View>
+              <View style={styles.calendarioStepper}>
+                <Pressable
+                  onPress={() => ajustarMinuto(-5)}
+                  hitSlop={8}
+                  style={styles.calendarioStepperBoton}
+                >
+                  <Ionicons name="remove" size={16} color={ACCENT.texto} />
+                </Pressable>
+                <Text style={styles.calendarioHoraLabel}>min</Text>
+                <Pressable
+                  onPress={() => ajustarMinuto(5)}
+                  hitSlop={8}
+                  style={styles.calendarioStepperBoton}
+                >
+                  <Ionicons name="add" size={16} color={ACCENT.texto} />
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <Pressable
+                style={[styles.calendarioBotonCerrar, { flex: 1 }]}
+                onPress={() => setVisible(false)}
+              >
+                <Text style={styles.calendarioBotonCerrarTexto}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarioBotonAceptar, { flex: 1 }]}
+                onPress={aplicar}
+              >
+                <Text style={styles.calendarioBotonAceptarTexto}>Aceptar</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+function avisar(titulo: string, mensaje?: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
+    return;
+  }
+  Alert.alert(titulo, mensaje);
+}
 
 // --- PALETA COMPLEMENTARIA (acentos que no existen aún en ColoresApp) ---
 const ACCENT = {
@@ -691,8 +1011,12 @@ const VistaPreviaTiempoReal = ({
     "left",
   );
   const [mostrarSelectorFuente, setMostrarSelectorFuente] = useState(false);
+  const [dispositivo, setDispositivo] = useState<"movil" | "escritorio">(
+    "escritorio",
+  );
 
   const opciones = p.opciones.filter((o) => o.texto.trim().length > 0);
+  const esMovil = dispositivo === "movil";
 
   return (
     <View style={styles.previewWrap}>
@@ -702,12 +1026,34 @@ const VistaPreviaTiempoReal = ({
           <Text style={styles.previewTitulo}>Vista previa en tiempo real</Text>
         </View>
         <View style={{ flexDirection: "row", gap: 6 }}>
-          <Ionicons
-            name="phone-portrait-outline"
-            size={15}
-            color={ACCENT.textoTenue}
-          />
-          <Ionicons name="desktop-outline" size={15} color={ACCENT.primario} />
+          <Pressable
+            onPress={() => setDispositivo("movil")}
+            hitSlop={6}
+            style={[
+              styles.previewDispositivoBoton,
+              esMovil && styles.previewDispositivoBotonActivo,
+            ]}
+          >
+            <Ionicons
+              name="phone-portrait-outline"
+              size={15}
+              color={esMovil ? ACCENT.primario : ACCENT.textoTenue}
+            />
+          </Pressable>
+          <Pressable
+            onPress={() => setDispositivo("escritorio")}
+            hitSlop={6}
+            style={[
+              styles.previewDispositivoBoton,
+              !esMovil && styles.previewDispositivoBotonActivo,
+            ]}
+          >
+            <Ionicons
+              name="desktop-outline"
+              size={15}
+              color={!esMovil ? ACCENT.primario : ACCENT.textoTenue}
+            />
+          </Pressable>
         </View>
       </View>
 
@@ -764,7 +1110,12 @@ const VistaPreviaTiempoReal = ({
         </View>
       </View>
 
-      <View style={styles.previewCanvas}>
+      <View
+        style={[
+          styles.previewCanvas,
+          esMovil && styles.previewCanvasMovil,
+        ]}
+      >
         <View style={styles.previewCanvasTop}>
           <View style={{ flexDirection: "row", gap: 5 }}>
             <View style={[styles.previewDot, { backgroundColor: "#F2B8B5" }]} />
@@ -969,7 +1320,9 @@ const EditorBloqueModal = ({
     "inmediato" | "programado"
   >(bloqueInicial?.modo_calificacion ?? "inmediato");
   const [fechaPublicacion, setFechaPublicacion] = useState(
-    bloqueInicial?.fecha_publicacion?.split("T")[0] ?? "",
+    bloqueInicial?.fecha_publicacion
+      ? bloqueInicial.fecha_publicacion.slice(0, 16)
+      : "",
   );
   const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<
     Set<number>
@@ -981,6 +1334,132 @@ const EditorBloqueModal = ({
   const [guardando, setGuardando] = useState(false);
   const [preguntaActivaIdx, setPreguntaActivaIdx] = useState(0);
   const [mostrarDatosBloque, setMostrarDatosBloque] = useState(false);
+
+  // ── Autoguardado local + estado de conexión ──
+  // Guarda un respaldo del bloque en el dispositivo cada pocos segundos,
+  // para no perder el trabajo si se va la conexión a internet o se cierra
+  // la app por accidente antes de "Publicar".
+  const claveBorrador = `borrador_reactivos_${bloqueInicial?.examen_id ?? "nuevo"}`;
+  const [enLinea, setEnLinea] = useState(true);
+  const [estadoGuardado, setEstadoGuardado] = useState<
+    "guardado" | "guardando" | "pendiente" | "error"
+  >("guardado");
+  const [borradorRevisado, setBorradorRevisado] = useState(false);
+
+  // Detecta si hay conexión a internet (en web, vía eventos del navegador).
+  // Solo mientras el editor está abierto: el <Modal> de React Native
+  // mantiene este componente montado aunque esté oculto, así que sin este
+  // control el efecto se dispararía cada vez que se carga la pantalla,
+  // no solo cuando el usuario realmente abre el editor.
+  useEffect(() => {
+    if (!visible) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const id = setTimeout(() => setEnLinea(navigator.onLine), 0);
+      const alConectar = () => setEnLinea(true);
+      const alDesconectar = () => setEnLinea(false);
+      window.addEventListener("online", alConectar);
+      window.addEventListener("offline", alDesconectar);
+      return () => {
+        clearTimeout(id);
+        window.removeEventListener("online", alConectar);
+        window.removeEventListener("offline", alDesconectar);
+      };
+    }
+  }, [visible]);
+
+  // Al abrir el editor (y solo la primera vez que se abre en esta sesión),
+  // revisa si existe un borrador guardado localmente y ofrece recuperarlo.
+  const borradorYaRevisadoRef = useRef(false);
+  useEffect(() => {
+    if (!visible || borradorYaRevisadoRef.current) return;
+    borradorYaRevisadoRef.current = true;
+    (async () => {
+      try {
+        const guardadoJson = await AsyncStorage.getItem(claveBorrador);
+        if (guardadoJson) {
+          const borrador = JSON.parse(guardadoJson);
+          const fecha = borrador.guardadoEn
+            ? new Date(borrador.guardadoEn).toLocaleString()
+            : "una sesión anterior";
+          confirmarAccionInfo(
+            "Se encontró un borrador sin publicar",
+            `Hay cambios de ${fecha} que no llegaste a publicar. ¿Quieres recuperarlos?`,
+            () => {
+              if (borrador.materia !== undefined) setMateria(borrador.materia);
+              if (borrador.seccion !== undefined) setSeccion(borrador.seccion);
+              if (borrador.duracion !== undefined)
+                setDuracion(borrador.duracion);
+              if (borrador.modoCalificacion !== undefined)
+                setModoCalificacion(borrador.modoCalificacion);
+              if (borrador.fechaPublicacion !== undefined)
+                setFechaPublicacion(borrador.fechaPublicacion);
+              if (Array.isArray(borrador.carreraIds))
+                setCarrerasSeleccionadas(new Set(borrador.carreraIds));
+              if (Array.isArray(borrador.preguntas))
+                setPreguntas(borrador.preguntas);
+            },
+            () => AsyncStorage.removeItem(claveBorrador),
+          );
+        }
+      } finally {
+        setBorradorRevisado(true);
+      }
+    })();
+  }, [visible, claveBorrador]);
+
+  // Cuando se cierra el editor, se reinicia el chequeo del borrador para
+  // que la próxima vez que se abra (quizá con datos distintos) vuelva a
+  // revisar si hay algo pendiente de recuperar.
+  useEffect(() => {
+    if (!visible) {
+      borradorYaRevisadoRef.current = false;
+      const id = setTimeout(() => setBorradorRevisado(false), 0);
+      return () => clearTimeout(id);
+    }
+  }, [visible]);
+
+  // Guarda un respaldo local cada vez que algo cambia (con un pequeño
+  // retraso para no escribir en cada tecla). Esto NO publica el examen,
+  // solo evita perder el trabajo si hay un corte de conexión o de energía.
+  // Igual que arriba, solo mientras el editor está realmente abierto.
+  useEffect(() => {
+    if (!visible || !borradorRevisado) return;
+    const idPendiente = setTimeout(() => setEstadoGuardado("pendiente"), 0);
+    const timeout = setTimeout(async () => {
+      setEstadoGuardado("guardando");
+      try {
+        const borrador = {
+          materia,
+          seccion,
+          duracion,
+          modoCalificacion,
+          fechaPublicacion,
+          carreraIds: Array.from(carrerasSeleccionadas),
+          preguntas,
+          guardadoEn: new Date().toISOString(),
+        };
+        await AsyncStorage.setItem(claveBorrador, JSON.stringify(borrador));
+        setEstadoGuardado("guardado");
+      } catch {
+        setEstadoGuardado("error");
+      }
+    }, 1200);
+    return () => {
+      clearTimeout(idPendiente);
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    visible,
+    materia,
+    seccion,
+    duracion,
+    modoCalificacion,
+    fechaPublicacion,
+    carrerasSeleccionadas,
+    preguntas,
+    borradorRevisado,
+  ]);
 
   const toggleCarrera = (id: number) => {
     setCarrerasSeleccionadas((prev) => {
@@ -1082,6 +1561,19 @@ const EditorBloqueModal = ({
       return;
     }
 
+    let fechaPublicacionISO: string | null = null;
+    if (modoCalificacion === "programado") {
+      const parsed = new Date(fechaPublicacion);
+      if (!fechaPublicacion.trim() || isNaN(parsed.getTime())) {
+        avisar(
+          "Fecha inválida",
+          "Escribe la fecha de publicación en formato AAAA-MM-DD o AAAA-MM-DD HH:mm, o elígela con el calendario.",
+        );
+        return;
+      }
+      fechaPublicacionISO = parsed.toISOString();
+    }
+
     setGuardando(true);
     try {
       await onSave({
@@ -1091,12 +1583,11 @@ const EditorBloqueModal = ({
         duracionExamen: parseInt(duracion, 10) || 60,
         carreraIds: Array.from(carrerasSeleccionadas),
         modoCalificacion: modoCalificacion,
-        fechaPublicacion:
-          modoCalificacion === "programado"
-            ? new Date(fechaPublicacion).toISOString()
-            : null,
+        fechaPublicacion: fechaPublicacionISO,
         preguntas,
       });
+      // Se publicó correctamente: el respaldo local ya no es necesario.
+      await AsyncStorage.removeItem(claveBorrador);
     } finally {
       setGuardando(false);
     }
@@ -1180,12 +1671,9 @@ const EditorBloqueModal = ({
           {modoCalificacion === "programado" && (
             <View style={styles.campoGrupo}>
               <Text style={styles.campoLabel}>Fecha de Publicación</Text>
-              <TextInput
-                style={styles.input}
+              <CampoFecha
                 value={fechaPublicacion}
-                onChangeText={setFechaPublicacion}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={ACCENT.textoTenue}
+                onChange={setFechaPublicacion}
               />
               <Text style={styles.hintTexto}>
                 Los resultados serán visibles a partir de esta fecha.
@@ -1263,28 +1751,97 @@ const EditorBloqueModal = ({
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.modalTitle}>Editor de Reactivos</Text>
-            <Text style={styles.modalSubtitle}>
-              {bloqueInicial ? "Edición de Bloque" : "Nuevo Bloque"}
-              {materia ? ` de ${materia}` : ""}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={styles.modalSubtitle}>
+                {bloqueInicial ? "Edición de Bloque" : "Nuevo Bloque"}
+                {materia ? ` de ${materia}` : ""}
+              </Text>
+              <View
+                style={[
+                  styles.conexionPunto,
+                  { backgroundColor: enLinea ? "#3FB27F" : "#E0554A" },
+                ]}
+              />
+              <Text style={styles.conexionTexto}>
+                {enLinea ? "En línea" : "Sin conexión"} ·{" "}
+                {estadoGuardado === "guardando"
+                  ? "guardando respaldo..."
+                  : estadoGuardado === "error"
+                    ? "error al respaldar"
+                    : estadoGuardado === "pendiente"
+                      ? "cambios sin respaldar"
+                      : "respaldo local al día"}
+              </Text>
+            </View>
           </View>
           {esEscritorio && (
             <View style={{ flexDirection: "row", gap: 14, marginRight: 14 }}>
-              <Ionicons
-                name="cloud-upload-outline"
-                size={19}
-                color={ACCENT.textoSecundario}
-              />
-              <Ionicons
-                name="settings-outline"
-                size={19}
-                color={ACCENT.textoSecundario}
-              />
-              <Ionicons
-                name="help-circle-outline"
-                size={19}
-                color={ACCENT.textoSecundario}
-              />
+              <Pressable
+                hitSlop={6}
+                onPress={() =>
+                  Alert.alert(
+                    enLinea
+                      ? "Respaldo local"
+                      : "Sin conexión a internet",
+                    estadoGuardado === "error"
+                      ? "No se pudo guardar el respaldo local en este dispositivo. Tus cambios siguen en pantalla, pero intenta guardarlos pronto."
+                      : `Tu progreso se guarda automáticamente en este dispositivo cada pocos segundos, aunque se corte el internet.${
+                          enLinea
+                            ? ""
+                            : " En cuanto vuelva la conexión, podrás publicar sin perder nada."
+                        } Si cierras el editor sin publicar, te preguntaremos si quieres recuperarlo la próxima vez que lo abras.`,
+                  )
+                }
+              >
+                <Ionicons
+                  name={
+                    !enLinea
+                      ? "cloud-offline-outline"
+                      : estadoGuardado === "guardando" ||
+                          estadoGuardado === "pendiente"
+                        ? "cloud-upload-outline"
+                        : estadoGuardado === "error"
+                          ? "warning-outline"
+                          : "cloud-done-outline"
+                  }
+                  size={19}
+                  color={
+                    !enLinea || estadoGuardado === "error"
+                      ? "#E0554A"
+                      : ACCENT.textoSecundario
+                  }
+                />
+              </Pressable>
+              <Pressable
+                hitSlop={6}
+                onPress={() =>
+                  Alert.alert(
+                    "Ajustes del editor",
+                    "El respaldo automático local está activado y no requiere configuración. Usa el selector de tamaño de letra y alineación en la vista previa para ajustar cómo se verá la pregunta para los aspirantes.",
+                  )
+                }
+              >
+                <Ionicons
+                  name="settings-outline"
+                  size={19}
+                  color={ACCENT.textoSecundario}
+                />
+              </Pressable>
+              <Pressable
+                hitSlop={6}
+                onPress={() =>
+                  Alert.alert(
+                    "Ayuda del Editor de Reactivos",
+                    "1) Escribe el enunciado y las opciones de respuesta.\n2) Marca con el check cuál es la opción correcta.\n3) Revisa cómo se verá en la vista previa (puedes alternar entre móvil y escritorio).\n4) Presiona Publicar para guardar el bloque. Mientras editas, tu trabajo se respalda automáticamente en este dispositivo.",
+                  )
+                }
+              >
+                <Ionicons
+                  name="help-circle-outline"
+                  size={19}
+                  color={ACCENT.textoSecundario}
+                />
+              </Pressable>
             </View>
           )}
           <Pressable onPress={onClose} style={styles.cancelButtonHeader}>
@@ -1452,42 +2009,28 @@ export default function GestionarPreguntasScreen() {
   const gruposSegmentados = gruposFiltrados.slice(inicioSegmento, finSegmento);
 
   const handleEliminar = (id: number) => {
-    Alert.alert("Confirmar", `¿Eliminar reactivo #${id}?`, [
-      { text: "Cancelar" },
-      {
-        text: "Eliminar",
-        style: "destructive",
-        onPress: async () => {
-          const exito = await eliminarPregunta(id);
-          if (exito) {
-            cargarDatos();
-          } else {
-            Alert.alert("Error", "No se pudo eliminar el reactivo.");
-          }
-        },
-      },
-    ]);
+    confirmarAccion("Confirmar", `¿Eliminar reactivo #${id}?`, async () => {
+      const exito = await eliminarPregunta(id);
+      if (exito) {
+        cargarDatos();
+      } else {
+        avisar("Error", "No se pudo eliminar el reactivo.");
+      }
+    });
   };
 
   const handleEliminarBloque = (grupo: any) => {
-    Alert.alert(
+    confirmarAccion(
       "Confirmar",
       `¿Eliminar todo el bloque de "${grupo.materia} · ${grupo.seccion}"? Se borrarán sus ${grupo.preguntas.length} preguntas.`,
-      [
-        { text: "Cancelar" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            const exito = await eliminarExamen(grupo.examen_id);
-            if (exito) {
-              cargarDatos();
-            } else {
-              Alert.alert("Error", "No se pudo eliminar el bloque.");
-            }
-          },
-        },
-      ],
+      async () => {
+        const exito = await eliminarExamen(grupo.examen_id);
+        if (exito) {
+          cargarDatos();
+        } else {
+          avisar("Error", "No se pudo eliminar el bloque.");
+        }
+      },
     );
   };
 
@@ -2031,18 +2574,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   columnaIzquierda: {
-    width: 280,
+    width: 240,
+    flexShrink: 0,
+    flexGrow: 0,
     borderRightWidth: 1,
     borderRightColor: ACCENT.borde,
     backgroundColor: "white",
   },
   columnaCentral: {
-    flex: 1.4,
+    flex: 2.2,
     borderRightWidth: 1,
     borderRightColor: ACCENT.borde,
   },
   columnaDerecha: {
-    flex: 1,
+    flex: 1.2,
     backgroundColor: ACCENT.fondo,
   },
 
@@ -2101,6 +2646,135 @@ const styles = StyleSheet.create({
     fontSize: 14,
     backgroundColor: ACCENT.fondo,
     color: ACCENT.texto,
+  },
+  calendarioOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(16,24,40,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  calendarioCard: {
+    width: 300,
+    maxWidth: "100%",
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 16,
+  },
+  calendarioHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  calendarioHeaderTexto: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: ACCENT.texto,
+  },
+  calendarioFilaSemana: {
+    flexDirection: "row",
+    marginBottom: 4,
+  },
+  calendarioDiaSemana: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "600",
+    color: ACCENT.textoSecundario,
+  },
+  calendarioFila: {
+    flexDirection: "row",
+  },
+  calendarioCelda: {
+    flex: 1,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarioCeldaTocable: {
+    borderRadius: 999,
+  },
+  calendarioCeldaSeleccionada: {
+    backgroundColor: ACCENT.primario,
+  },
+  calendarioCeldaTexto: {
+    fontSize: 13,
+    color: ACCENT.texto,
+  },
+  calendarioCeldaHoyTexto: {
+    color: ACCENT.primario,
+    fontWeight: "700",
+  },
+  calendarioCeldaSeleccionadaTexto: {
+    color: "white",
+    fontWeight: "700",
+  },
+  calendarioBotonCerrar: {
+    marginTop: 12,
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  calendarioBotonCerrarTexto: {
+    color: ACCENT.textoSecundario,
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  calendarioBotonAbrir: {
+    width: 42,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: ACCENT.primarioFondo,
+  },
+  calendarioHoraFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.bordeSuave,
+  },
+  calendarioHoraLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: ACCENT.textoSecundario,
+  },
+  calendarioStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  calendarioStepperBoton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: ACCENT.fondo,
+    borderWidth: 1,
+    borderColor: ACCENT.borde,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarioStepperValor: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: ACCENT.texto,
+    minWidth: 44,
+    textAlign: "center",
+  },
+  calendarioBotonAceptar: {
+    alignItems: "center",
+    paddingVertical: 10,
+    backgroundColor: ACCENT.primario,
+    borderRadius: 10,
+  },
+  calendarioBotonAceptarTexto: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 13,
   },
   carreraChip: {
     paddingHorizontal: 14,
@@ -2465,6 +3139,16 @@ const styles = StyleSheet.create({
     color: ACCENT.texto,
   },
 
+  conexionPunto: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  conexionTexto: {
+    fontSize: 10,
+    color: ACCENT.textoTenue,
+  },
+
   // ── VISTA PREVIA ──
   previewWrap: {
     gap: 12,
@@ -2529,6 +3213,14 @@ const styles = StyleSheet.create({
   alineacionBoton: {
     padding: 2,
   },
+  previewDispositivoBoton: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  previewDispositivoBotonActivo: {
+    backgroundColor: ACCENT.primarioFondo,
+  },
   previewCanvas: {
     backgroundColor: "white",
     borderRadius: 18,
@@ -2540,6 +3232,13 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
+  },
+  previewCanvasMovil: {
+    width: 320,
+    alignSelf: "center",
+    borderRadius: 28,
+    borderWidth: 6,
+    borderColor: "#1f2937",
   },
   previewCanvasTop: {
     flexDirection: "row",

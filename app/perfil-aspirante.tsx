@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -35,6 +36,8 @@ import {
 import { contarAvisosNoLeidos } from "@/services/avisosServicio";
 import { guardarTokenPush } from "@/services/pushRegistroServicio";
 import { obtenerTokenPushDispositivo } from "@/utils/pushDispositivo";
+import { mostrarNotificacionWeb } from "@/services/webNotificacionesServicio";
+import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
 import {
   obtenerCronograma,
   type ActividadCronograma,
@@ -128,11 +131,6 @@ const BP_DESKTOP = 1024;
 const NAV_ITEMS = [
   { key: "inicio", label: "Inicio", icon: "home-outline" as const },
   {
-    key: "proceso",
-    label: "Mi proceso",
-    icon: "document-text-outline" as const,
-  },
-  {
     key: "documentos",
     label: "Documentos",
     icon: "folder-open-outline" as const,
@@ -142,7 +140,17 @@ const NAV_ITEMS = [
     label: "Notificaciones",
     icon: "notifications-outline" as const,
   },
+  {
+    key: "actividades",
+    label: "Diagrama de actividades",
+    icon: "calendar-outline" as const,
+  },
   { key: "ajustes", label: "Ajustes", icon: "settings-outline" as const },
+  {
+    key: "ayuda",
+    label: "Ayuda y soporte",
+    icon: "help-circle-outline" as const,
+  },
 ];
 
 export default function PantallaPerfilAspirante() {
@@ -338,6 +346,42 @@ export default function PantallaPerfilAspirante() {
     router.push("/examen");
   };
 
+  // Notificación de avisos nuevos mientras el aspirante está en cualquier
+  // parte de su portal (no solo dentro de avisos-aspirante). El contador
+  // del sidebar/drawer sigue con su polling de 60s como respaldo; esto es
+  // lo que dispara la notificación real del navegador al instante.
+  useEffect(() => {
+    if (!aspirante.id) return;
+
+    const canal = supabase
+      .channel(`avisos-notif-${aspirante.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "avisos" },
+        (payload) => {
+          const nuevo = payload.new as { titulo: string; contenido: string; carrera_id: number | null; id: number };
+          if (nuevo.carrera_id === null || nuevo.carrera_id === aspirante.carreraId) {
+            mostrarNotificacionWeb(nuevo.titulo, {
+              cuerpo: nuevo.contenido,
+              datos: { avisoId: nuevo.id },
+              alHacerClick: () =>
+                router.push({
+                  pathname: "/avisos-aspirante",
+                  params: { aspiranteId: String(aspirante.id), carreraId: String(aspirante.carreraId) },
+                }),
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime avisos (perfil-aspirante):', status);
+      });
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+  }, [aspirante.id, aspirante.carreraId, router]);
+
   return (
     <View style={styles.appShell}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -361,6 +405,7 @@ export default function PantallaPerfilAspirante() {
           </Pressable>
         )}
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          <BannerPermisoNotificaciones aspiranteId={aspirante.id || undefined} />
           <View
             style={[styles.contentContainer, !showSidebar && { maxWidth: 720 }]}
           >
@@ -535,6 +580,8 @@ const Sidebar = ({
 }) => {
   const router = useRouter();
   const [isActividadesVisible, setActividadesVisible] = useState(false);
+  const [isAyudaVisible, setAyudaVisible] = useState(false);
+  const [mostrarManual, setMostrarManual] = useState(false);
   const [avisosNoLeidos, setAvisosNoLeidos] = useState(0);
 
   useEffect(() => {
@@ -569,17 +616,9 @@ const Sidebar = ({
 
       <SizedBox height={22} />
 
-      {!collapsed && (
-        <Pressable style={styles.sidebarCta}>
-          <Text style={styles.sidebarCtaText}>Ver mi convocatoria</Text>
-        </Pressable>
-      )}
-
-      <SizedBox height={18} />
-
       <View style={{ paddingHorizontal: collapsed ? 8 : 12 }}>
         {NAV_ITEMS.map((item) => {
-          const activo = item.key === "proceso";
+          const activo = item.key === "inicio";
           return (
             <Pressable
               key={item.key}
@@ -594,8 +633,12 @@ const Sidebar = ({
                   });
                 } else if (item.key === "documentos") {
                   router.push("/documentos-aspirante");
+                } else if (item.key === "actividades") {
+                  setActividadesVisible(true);
                 } else if (item.key === "ajustes") {
                   router.push("/ajustes-aspirante");
+                } else if (item.key === "ayuda") {
+                  setAyudaVisible(true);
                 }
               }}
               style={[
@@ -649,12 +692,6 @@ const Sidebar = ({
         style={{ paddingHorizontal: collapsed ? 8 : 12, paddingBottom: 18 }}
       >
         <SidebarFooterItem
-          icon="calendar-outline"
-          label="Diagrama de actividades"
-          collapsed={collapsed}
-          onPress={() => setActividadesVisible(true)}
-        />
-        <SidebarFooterItem
           icon="log-out-outline"
           label="Cerrar sesión"
           collapsed={collapsed}
@@ -698,6 +735,98 @@ const Sidebar = ({
                 </View>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isAyudaVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setAyudaVisible(false);
+          setMostrarManual(false);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalContainer, { maxWidth: 380 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ayuda y soporte</Text>
+              <Pressable
+                onPress={() => {
+                  setAyudaVisible(false);
+                  setMostrarManual(false);
+                }}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color={theme.textoSecundario}
+                />
+              </Pressable>
+            </View>
+            <SizedBox height={14} />
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => setMostrarManual((v) => !v)}
+            >
+              <Ionicons
+                name="help-circle-outline"
+                size={18}
+                color={theme.morado}
+              />
+              <Text style={styles.ayudaOpcionTexto}>Manual de usuario</Text>
+              <Ionicons
+                name={mostrarManual ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
+            {mostrarManual && (
+              <View style={styles.manualBox}>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves tu folio,
+                  sede y el resultado de tu examen.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Documentos</Text> están la guía
+                  de estudio y los materiales para prepararte.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Notificaciones</Text> se
+                  avisa cuando cambia tu estado o hay novedades.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Diagrama de actividades</Text> está
+                  el cronograma completo del proceso de admisión.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Ajustes</Text> activas
+                  notificaciones push, modo oscuro y cierras sesión.
+                </Text>
+              </View>
+            )}
+            <View style={styles.ayudaSeparador} />
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => {
+                setAyudaVisible(false);
+                setMostrarManual(false);
+                Linking.openURL("mailto:soporte@admisiones.edu.mx");
+              }}
+            >
+              <Ionicons
+                name="mail-open-outline"
+                size={18}
+                color={theme.morado}
+              />
+              <Text style={styles.ayudaOpcionTexto}>Contactar soporte</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1411,6 +1540,8 @@ const DrawerMovil = ({
 }) => {
   const router = useRouter();
   const [isActividadesVisible, setActividadesVisible] = useState(false);
+  const [isAyudaVisible, setAyudaVisible] = useState(false);
+  const [mostrarManual, setMostrarManual] = useState(false);
   const [avisosNoLeidos, setAvisosNoLeidos] = useState(0);
 
   useEffect(() => {
@@ -1457,7 +1588,7 @@ const DrawerMovil = ({
           <SizedBox height={20} />
 
           {NAV_ITEMS.map((item) => {
-            const activo = item.key === "proceso";
+            const activo = item.key === "inicio";
             return (
               <Pressable
                 key={item.key}
@@ -1477,8 +1608,12 @@ const DrawerMovil = ({
                     });
                   } else if (item.key === "documentos") {
                     router.push("/documentos-aspirante");
+                  } else if (item.key === "actividades") {
+                    setActividadesVisible(true);
                   } else if (item.key === "ajustes") {
                     router.push("/ajustes-aspirante");
+                  } else if (item.key === "ayuda") {
+                    setAyudaVisible(true);
                   }
                 }}
               >
@@ -1520,11 +1655,6 @@ const DrawerMovil = ({
 
           <View style={{ flex: 1 }} />
 
-          <SidebarFooterItem
-            icon="calendar-outline"
-            label="Diagrama de actividades"
-            onPress={() => setActividadesVisible(true)}
-          />
           <SidebarFooterItem
             icon="log-out-outline"
             label="Cerrar sesión"
@@ -1569,6 +1699,98 @@ const DrawerMovil = ({
                 </View>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isAyudaVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setAyudaVisible(false);
+          setMostrarManual(false);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalContainer, { maxWidth: 380 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ayuda y soporte</Text>
+              <Pressable
+                onPress={() => {
+                  setAyudaVisible(false);
+                  setMostrarManual(false);
+                }}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color={theme.textoSecundario}
+                />
+              </Pressable>
+            </View>
+            <SizedBox height={14} />
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => setMostrarManual((v) => !v)}
+            >
+              <Ionicons
+                name="help-circle-outline"
+                size={18}
+                color={theme.morado}
+              />
+              <Text style={styles.ayudaOpcionTexto}>Manual de usuario</Text>
+              <Ionicons
+                name={mostrarManual ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
+            {mostrarManual && (
+              <View style={styles.manualBox}>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves tu folio,
+                  sede y el resultado de tu examen.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Documentos</Text> están la guía
+                  de estudio y los materiales para prepararte.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Notificaciones</Text> se
+                  avisa cuando cambia tu estado o hay novedades.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Diagrama de actividades</Text> está
+                  el cronograma completo del proceso de admisión.
+                </Text>
+                <Text style={styles.manualItem}>
+                  • En <Text style={styles.manualNegrita}>Ajustes</Text> activas
+                  notificaciones push, modo oscuro y cierras sesión.
+                </Text>
+              </View>
+            )}
+            <View style={styles.ayudaSeparador} />
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => {
+                setAyudaVisible(false);
+                setMostrarManual(false);
+                Linking.openURL("mailto:soporte@admisiones.edu.mx");
+              }}
+            >
+              <Ionicons
+                name="mail-open-outline"
+                size={18}
+                color={theme.morado}
+              />
+              <Text style={styles.ayudaOpcionTexto}>Contactar soporte</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1746,14 +1968,6 @@ const styles = StyleSheet.create({
   },
   sidebarLogoTitle: { color: theme.blanco, fontWeight: "800", fontSize: 14 },
   sidebarLogoSubtitle: { color: theme.sidebarTexto, fontSize: 10 },
-  sidebarCta: {
-    marginHorizontal: 12,
-    backgroundColor: theme.morado,
-    borderRadius: 12,
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  sidebarCtaText: { color: theme.blanco, fontWeight: "700", fontSize: 13 },
   sidebarNavItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -2065,6 +2279,33 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "center",
   },
+  ayudaOpcion: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 13,
+  },
+  ayudaOpcionTexto: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: "600",
+    color: theme.texto,
+  },
+  ayudaSeparador: { height: 1, backgroundColor: theme.borde },
+  manualBox: {
+    backgroundColor: theme.moradoFondo,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 4,
+    marginBottom: 6,
+    gap: 8,
+  },
+  manualItem: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: theme.texto,
+  },
+  manualNegrita: { fontWeight: "700" },
   modalInputLabel: {
     fontSize: 10,
     fontWeight: "bold",

@@ -1,76 +1,88 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { aspiranteFromMap, type Aspirante } from '../types/aspirante';
-import { supabase } from './supabaseClient';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "./supabaseClient";
 
 /**
- * Centraliza el manejo de la sesión del usuario (aspirante o administrador),
- * para que las pantallas no tengan que pedir login cada vez que se abre la app.
- * Migrado de lib/datos/servicio_sesion.dart
+ * Gestión de la sesión de usuario (admin o aspirante) guardada en el
+ * dispositivo. Migrado de lib/datos/sesion_local_service.dart.
  *
- * Nota: en Flutter usabas `SharedPreferences`; en React Native el equivalente
- * es `AsyncStorage` (ya lo tienes instalado, lo usa `supabaseClient.ts`).
+ * Usa AsyncStorage para guardar un JSON con los datos del usuario que
+ * inició sesión, para no tener que volver a pedirlos cada vez que se
+al abrir la app.
  */
 
-const KEY_ASPIRANTE = 'sesion_aspirante';
-const KEY_ADMIN = 'sesion_admin';
+const CLAVE_SESION_ASPIRANTE = "sesion_aspirante";
+const CLAVE_SESION_ADMIN = "sesion_admin";
 
-// --- Métodos para Aspirante ---
-
-export async function guardarSesionAspirante(
-  aspiranteData: Record<string, any>
-): Promise<void> {
-  await AsyncStorage.setItem(KEY_ASPIRANTE, JSON.stringify(aspiranteData));
-}
-
-export async function obtenerSesionAspirante(): Promise<Aspirante | null> {
-  const aspiranteJson = await AsyncStorage.getItem(KEY_ASPIRANTE);
-  if (aspiranteJson == null) return null;
-  const aspiranteMap = JSON.parse(aspiranteJson);
-  return aspiranteFromMap(aspiranteMap);
-}
-
-export async function cerrarSesionAspirante(): Promise<void> {
-  await AsyncStorage.removeItem(KEY_ASPIRANTE);
-}
-
-// --- Métodos para Administrador ---
-// (En el Flutter original solo existía el de "obtener"; se agregan
-// guardar/cerrar aquí porque login-admin.tsx los va a necesitar para
-// funcionar simétrico al flujo de aspirante.)
-
-export async function guardarSesionAdmin(adminData: Record<string, any>): Promise<void> {
-  await AsyncStorage.setItem(KEY_ADMIN, JSON.stringify(adminData));
-}
-
-export async function obtenerSesionAdmin(): Promise<Record<string, any> | null> {
-  const adminJson = await AsyncStorage.getItem(KEY_ADMIN);
-  if (adminJson == null) return null;
-  return JSON.parse(adminJson);
-}
-
-export async function cerrarSesionAdmin(): Promise<void> {
-  await AsyncStorage.removeItem(KEY_ADMIN);
+/**
+ * Guarda los datos de un aspirante en la sesión local.
+ * `datos` debe ser un objeto serializable a JSON.
+ */
+export async function guardarSesionAspirante(datos: Record<string, any>) {
+  try {
+    await AsyncStorage.setItem(CLAVE_SESION_ASPIRANTE, JSON.stringify(datos));
+  } catch (error) {
+    console.error("Error al guardar sesión de aspirante:", error);
+  }
 }
 
 /**
- * Limpia AMBAS sesiones (admin y aspirante). Úsalo en cualquier logout
- * y también justo antes de guardar una sesión nueva de login, para
- * evitar el bug de "quedan las dos guardadas a la vez" (eso hacía que
- * la pantalla de login rebotara sola al panel/perfil sin pedir nada).
+ * Recupera los datos del aspirante de la sesión local.
+ * Devuelve el objeto guardado, o null si no hay sesión.
  */
-export async function cerrarTodasLasSesiones(): Promise<void> {
-  await AsyncStorage.multiRemove([KEY_ASPIRANTE, KEY_ADMIN]);
-
-  // También hay que cerrar la sesión ANÓNIMA de Supabase Auth que
-  // `iniciarSesionAuthAdmin` deja abierta (y que, por tener
-  // `persistSession: true`, sobrevive a reinicios de la app).
-  // Si no se cierra aquí, esa sesión vieja se queda "colgada" — y si el
-  // admin al que estaba ligada fue eliminado mientras tanto, cualquier
-  // acción que dependa de auth.uid() (o un login futuro que intente
-  // reusarla) puede fallar sin un error claro.
+export async function obtenerSesionAspirante(): Promise<Record<
+  string,
+  any
+> | null> {
   try {
+    const json = await AsyncStorage.getItem(CLAVE_SESION_ASPIRANTE);
+    return json ? JSON.parse(json) : null;
+  } catch (error) {
+    console.error("Error al obtener sesión de aspirante:", error);
+    return null;
+  }
+}
+
+/** Guarda los datos de un administrador en la sesión local. */
+export async function guardarSesionAdmin(datos: Record<string, any>) {
+  try {
+    await AsyncStorage.setItem(CLAVE_SESION_ADMIN, JSON.stringify(datos));
+  } catch (error) {
+    console.error("Error al guardar sesión de admin:", error);
+  }
+}
+
+/** Recupera los datos del administrador de la sesión local. */
+export async function obtenerSesionAdmin(): Promise<Record<string, any> | null> {
+  try {
+    const json = await AsyncStorage.getItem(CLAVE_SESION_ADMIN);
+    return json ? JSON.parse(json) : null;
+  } catch (error) {
+    console.error("Error al obtener sesión de admin:", error);
+    return null;
+  }
+}
+
+/** Cierra solo la sesión de administrador, sin afectar la de aspirante. */
+export async function cerrarSesionAdmin() {
+  try {
+    await AsyncStorage.removeItem(CLAVE_SESION_ADMIN);
+  } catch (error) {
+    console.error("Error al cerrar sesión de admin:", error);
+  }
+}
+
+/**
+ * Limpia todas las sesiones guardadas (aspirante y admin).
+ * Se llama al cerrar sesión o al cambiar de tipo de usuario.
+ */
+export async function cerrarTodasLasSesiones() {
+  try {
+    await AsyncStorage.multiRemove([
+      CLAVE_SESION_ASPIRANTE,
+      CLAVE_SESION_ADMIN,
+    ]);
     await supabase.auth.signOut();
-  } catch (e) {
-    console.warn('Error al cerrar sesión de Supabase Auth:', e);
+  } catch (error) {
+    console.error("Error al cerrar todas las sesiones:", error);
   }
 }

@@ -1,51 +1,52 @@
+import { useConfirm } from "@/components/ConfirmDialog";
 import { CampoTexto } from "@/components/CampoTexto";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTemaControlador } from "@/hooks/useTemaControlador";
 import {
-    actualizarActivoAdmin,
-    actualizarPerfilAdmin,
-    crearAdministrador,
-    eliminarAdministrador,
-    obtenerAdministradoresSecundarios,
+  actualizarActivoAdmin,
+  actualizarPerfilAdmin,
+  crearAdministrador,
+  eliminarAdministrador,
+  obtenerAdministradoresSecundarios,
 } from "@/services/adminAuthServicio";
 import {
-    actualizarLimites,
-    actualizarModoAutomatico,
-    actualizarRegistroAutomatico,
-    obtenerConfiguracion,
-    obtenerHistorial,
-    reiniciarContadorManual,
+  actualizarLimites,
+  actualizarModoAutomatico,
+  actualizarRegistroAutomatico,
+  obtenerConfiguracion,
+  obtenerHistorial,
+  reiniciarContadorManual,
 } from "@/services/correosConfigServicio";
+import { reporteACsv } from "@/services/reportesServicio";
 import {
-    generarReporteAspirantesPeriodo,
-    purgarAspirantesPeriodo,
-    reporteACsv,
-} from "@/services/reportesServicio";
+  generarReporteAspirantesPeriodo,
+  purgarAspirantesPeriodo,
+} from "@/services/resultadosAdminServicio";
 import {
-    cerrarSesionAdmin,
-    obtenerSesionAdmin,
+  cerrarSesionAdmin,
+  obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { temaConfigPorDefecto, type TemaConfig } from "@/services/temaConfig";
 import {
-    esContraseniaFuerte,
-    obtenerFeedbackContrasena
+  esContraseniaFuerte,
+  obtenerFeedbackContrasena,
 } from "@/utils/seguridadServicio";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
 } from "react-native";
 
 /**
@@ -165,7 +166,8 @@ export default function PantallaAjustesSistema() {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [cargando, setCargando] = useState(true);
 
-  const [isDataModalVisible, setDataModalVisible] = useState(false);
+  const [isReporteModalVisible, setReporteModalVisible] = useState(false);
+  const [isArchivarModalVisible, setArchivarModalVisible] = useState(false);
   const [isAdminsModalVisible, setAdminsModalVisible] = useState(false);
   const [isCorreosModalVisible, setCorreosModalVisible] = useState(false);
   const [isHistorialModalVisible, setHistorialModalVisible] = useState(false);
@@ -292,14 +294,14 @@ export default function PantallaAjustesSistema() {
               title="Exportar Reportes"
               subtitle="Generar informe por período de admisión"
               icon="download-outline"
-              onTap={() => setDataModalVisible(true)}
+              onTap={() => setReporteModalVisible(true)}
             />
             <View style={styles.divider} />
             <SettingsTile
-              title="Purgar Aspirantes"
-              subtitle="Eliminar registros de periodos caducados"
+              title="Archivar Aspirantes"
+              subtitle="Archivar registros de periodos caducados"
               icon="trash-outline"
-              onTap={() => setDataModalVisible(true)}
+              onTap={() => setArchivarModalVisible(true)}
             />
           </SettingsCard>
 
@@ -360,9 +362,14 @@ export default function PantallaAjustesSistema() {
         onClose={() => setAdminsModalVisible(false)}
       />
 
-      <DataLifecycleModal
-        visible={isDataModalVisible}
-        onClose={() => setDataModalVisible(false)}
+      <ReportePeriodoModal
+        visible={isReporteModalVisible}
+        onClose={() => setReporteModalVisible(false)}
+      />
+
+      <ArchivarPeriodoModal
+        visible={isArchivarModalVisible}
+        onClose={() => setArchivarModalVisible(false)}
         onDataUpdated={onDatosActualizados}
       />
 
@@ -698,7 +705,9 @@ function NuevoAdminModal({
       console.error("Excepción al crear administrador:", err);
       avisar(
         "Error",
-        err instanceof Error ? err.message : "No se pudo crear el administrador.",
+        err instanceof Error
+          ? err.message
+          : "No se pudo crear el administrador.",
       );
     } finally {
       setGuardando(false);
@@ -780,16 +789,14 @@ function NuevoAdminModal({
 }
 
 // ════════════════════════════════════════════════════════════════════
-// CICLO DE VIDA DE DATOS (reporte + purga)
+// CICLO DE VIDA DE DATOS: REPORTE
 // ════════════════════════════════════════════════════════════════════
-function DataLifecycleModal({
+function ReportePeriodoModal({
   visible,
   onClose,
-  onDataUpdated,
 }: {
   visible: boolean;
   onClose: () => void;
-  onDataUpdated: () => void;
 }) {
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [reporte, setReporte] = useState<Record<string, any>[]>([]);
@@ -819,74 +826,51 @@ function DataLifecycleModal({
 
     setDescargando(true);
     try {
-      // Nota: el Flutter original generaba un .xlsx con formato (banner,
-      // colores, anchos de columna). Aquí se simplificó a CSV para no
-      // depender de una librería de Excel dentro de React Native — se
-      // abre igual en Excel/Sheets. Usamos la API "legacy" de
-      // `expo-file-system` (más estable en cuanto a tipos) y
-      // `expo-sharing`.
       const csv = reporteACsv(reporte, ano);
-      const FileSystem = await import("expo-file-system/legacy");
-      const fileUri = `${FileSystem.cacheDirectory}Reporte_Periodo_${ano}.csv`;
+      const nombreArchivo = `Reporte_Periodo_${ano}.csv`;
 
-      await FileSystem.writeAsStringAsync(fileUri, csv, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: "text/csv",
-          dialogTitle: "Guardar reporte del periodo",
-        });
+      if (Platform.OS === "web") {
+        // expo-file-system no funciona en web (cacheDirectory es null ahí,
+        // por eso "Descargar CSV" tronaba con "No se pudo generar el
+        // archivo CSV" al usarlo desde el navegador). En web se descarga
+        // con un Blob + <a download>, como cualquier descarga de archivo.
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = nombreArchivo;
+        document.body.appendChild(enlace);
+        enlace.click();
+        document.body.removeChild(enlace);
+        URL.revokeObjectURL(url);
       } else {
-        Alert.alert("Reporte generado", `Se guardó en: ${fileUri}`);
+        // Nota: el Flutter original generaba un .xlsx con formato (banner,
+        // colores, anchos de columna). Aquí se simplificó a CSV para no
+        // depender de una librería de Excel dentro de React Native — se
+        // abre igual en Excel/Sheets. Usamos la API "legacy" de
+        // `expo-file-system` (más estable en cuanto a tipos) y
+        // `expo-sharing`.
+        const FileSystem = await import("expo-file-system/legacy");
+        const fileUri = `${FileSystem.cacheDirectory}${nombreArchivo}`;
+
+        await FileSystem.writeAsStringAsync(fileUri, csv, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: "text/csv",
+            dialogTitle: "Guardar reporte del periodo",
+          });
+        } else {
+          Alert.alert("Reporte generado", `Se guardó en: ${fileUri}`);
+        }
       }
     } catch {
       Alert.alert("Error", "No se pudo generar el archivo CSV.");
     } finally {
       setDescargando(false);
     }
-  };
-
-  const handlePurge = async () => {
-    const ano = parseInt(year, 10);
-    if (isNaN(ano)) {
-      Alert.alert("Error", "Por favor, ingresa un año válido.");
-      return;
-    }
-
-    Alert.alert(
-      "Confirmar Purga",
-      `Esta acción eliminará a todos los aspirantes del periodo ${ano} y no se puede deshacer. ¿Estás seguro?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Sí, Purgar",
-          style: "destructive",
-          onPress: async () => {
-            setCargando(true);
-            try {
-              const exito = await purgarAspirantesPeriodo(ano);
-              if (exito) {
-                onDataUpdated();
-                Alert.alert(
-                  "Éxito",
-                  `Se han purgado los datos del año ${ano}.`,
-                );
-                setReporte([]);
-                onClose();
-              } else {
-                Alert.alert("Error", "No se pudo completar la purga.");
-              }
-            } catch {
-              Alert.alert("Error", "Ocurrió un error durante la purga.");
-            } finally {
-              setCargando(false);
-            }
-          },
-        },
-      ],
-    );
   };
 
   return (
@@ -897,8 +881,8 @@ function DataLifecycleModal({
       onRequestClose={onClose}
     >
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Ciclo de Vida de Datos</Text>
+        <View style={[styles.modalContainer, { maxWidth: 500 }]}>
+          <Text style={styles.modalTitle}>Exportar Reporte por Período</Text>
 
           <CampoTexto
             etiqueta="Año del periodo"
@@ -914,7 +898,7 @@ function DataLifecycleModal({
           {!cargando && reporte.length > 0 && (
             <View style={styles.reportPreview}>
               <Text style={{ fontWeight: "bold" }}>
-                Resultados: {reporte.length} aspirantes
+                Aspirantes encontrados: {reporte.length}
               </Text>
               <ScrollView style={{ maxHeight: 150, marginTop: 8 }}>
                 {reporte.map((item, index) => (
@@ -947,16 +931,104 @@ function DataLifecycleModal({
                 <Text style={styles.actionButtonText}>Descargar CSV</Text>
               )}
             </Pressable>
-            <Pressable
-              style={[styles.actionButton, styles.purgeButton]}
-              onPress={handlePurge}
-            >
-              <Text style={styles.actionButtonText}>Purgar Periodo</Text>
-            </Pressable>
           </View>
 
           <Pressable style={{ marginTop: 16 }} onPress={onClose}>
             <Text style={{ textAlign: "center", color: "grey" }}>Cerrar</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CICLO DE VIDA DE DATOS: ARCHIVAR (PURGAR)
+// ════════════════════════════════════════════════════════════════════
+function ArchivarPeriodoModal({
+  visible,
+  onClose,
+  onDataUpdated,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onDataUpdated: () => void;
+}) {
+  const [year, setYear] = useState((new Date().getFullYear() - 1).toString());
+  const [cargando, setCargando] = useState(false);
+  const confirmar = useConfirm();
+
+  const handlePurge = () => {
+    const ano = parseInt(year, 10);
+    if (isNaN(ano)) {
+      Alert.alert("Error", "Por favor, ingresa un año válido.");
+      return;
+    }
+
+    // Nota: Alert.alert(title, msg, [botones]) NO funciona en React Native
+    // Web (los botones y su onPress se pierden en silencio: por eso
+    // "Archivar Período" no hacía nada al presionarlo desde el navegador).
+    // Se reemplaza por useConfirm(), que muestra un Modal real igual en
+    // iOS, Android y web.
+    confirmar({
+      titulo: "Confirmar Archivado",
+      mensaje: `Esta acción archivará (eliminará de forma permanente) a todos los aspirantes del periodo ${ano} y no se puede deshacer. ¿Estás seguro?`,
+      textoConfirmar: "Sí, Archivar",
+      destructivo: true,
+      onConfirmar: async () => {
+        setCargando(true);
+        try {
+          const exito = await purgarAspirantesPeriodo(ano);
+          if (exito) {
+            onDataUpdated();
+            Alert.alert("Éxito", `Se han archivado los datos del año ${ano}.`);
+            onClose();
+          } else {
+            Alert.alert("Error", "No se pudo completar el archivado.");
+          }
+        } catch {
+          Alert.alert("Error", "Ocurrió un error durante el archivado.");
+        } finally {
+          setCargando(false);
+        }
+      },
+    });
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Archivar Período Caducado</Text>
+          <CampoTexto
+            etiqueta="Año del periodo a archivar"
+            valor={year}
+            onChangeText={setYear}
+            keyboardType="number-pad"
+            icono="trash-outline"
+          />
+          <View style={styles.modalActions}>
+            <Pressable
+              style={[styles.actionButton, styles.purgeButton]}
+              onPress={handlePurge}
+              disabled={cargando}
+            >
+              {cargando ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.actionButtonText}>
+                  Archivar Período {year}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+          <Pressable style={{ marginTop: 16 }} onPress={onClose}>
+            <Text style={{ textAlign: "center", color: "grey" }}>Cancelar</Text>
           </Pressable>
         </View>
       </View>
@@ -1337,6 +1409,11 @@ const PALETAS_PREDEFINIDAS: { nombre: string; p: string; s: string }[] = [
   { nombre: "Grafito", p: "#334155", s: ColoresApp.textoSecundario },
 ];
 
+const ROLES_TEMA: { valor: TemaConfig["rol"]; etiqueta: string }[] = [
+  { valor: "admin", etiqueta: "Admin" },
+  { valor: "aspirante", etiqueta: "Aspirante" },
+];
+
 function AparienciaModal({
   visible,
   onClose,
@@ -1344,7 +1421,8 @@ function AparienciaModal({
   visible: boolean;
   onClose: () => void;
 }) {
-  const { tema, guardar } = useTemaControlador();
+  const [rolActivo, setRolActivo] = useState<TemaConfig["rol"]>("admin");
+  const { tema, guardar } = useTemaControlador(rolActivo);
   const [borrador, setBorrador] = useState<TemaConfig>(tema);
   const [guardando, setGuardando] = useState(false);
 
@@ -1352,6 +1430,11 @@ function AparienciaModal({
     if (!visible) return;
     Promise.resolve().then(() => setBorrador(tema));
   }, [visible, tema]);
+
+  const cerrarYResetear = () => {
+    setRolActivo("admin");
+    onClose();
+  };
 
   const cambiar = (cambios: Partial<TemaConfig>) =>
     setBorrador((b) => ({ ...b, ...cambios }));
@@ -1366,7 +1449,7 @@ function AparienciaModal({
         ? "Apariencia guardada y aplicada a todo el sistema."
         : "No se pudo guardar. Revisa que exista la tabla configuracion_tema en Supabase.",
     );
-    if (exito) onClose();
+    if (exito) cerrarYResetear();
   };
 
   return (
@@ -1374,11 +1457,41 @@ function AparienciaModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={cerrarYResetear}
     >
       <View style={styles.modalBackdrop}>
         <View style={[styles.modalContainer, { maxHeight: "90%" }]}>
           <Text style={styles.modalTitle}>Apariencia del Sistema</Text>
+
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+            {ROLES_TEMA.map((r) => {
+              const activo = rolActivo === r.valor;
+              return (
+                <Pressable
+                  key={r.valor}
+                  onPress={() => setRolActivo(r.valor)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    alignItems: "center",
+                    backgroundColor: activo ? ColoresApp.primario : ColoresApp.borde,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontWeight: "600",
+                      fontSize: 13,
+                      color: activo ? "white" : ColoresApp.textoSecundario,
+                    }}
+                  >
+                    {r.etiqueta}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <ScrollView>
             <View
               style={[
@@ -1502,6 +1615,56 @@ function AparienciaModal({
                   icono="pricetag-outline"
                   autoCapitalize="none"
                 />
+                <Pressable
+                  onPress={() =>
+                    cambiar({ fondoGradienteAnimado: !borrador.fondoGradienteAnimado })
+                  }
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 10,
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Text style={{ color: ColoresApp.texto, fontWeight: "600" }}>
+                    Animar degradado
+                  </Text>
+                  <View
+                    style={{
+                      width: 44,
+                      height: 24,
+                      borderRadius: 12,
+                      padding: 2,
+                      backgroundColor: borrador.fondoGradienteAnimado
+                        ? ColoresApp.primario
+                        : ColoresApp.borde,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: "white",
+                        alignSelf: borrador.fondoGradienteAnimado ? "flex-end" : "flex-start",
+                      }}
+                    />
+                  </View>
+                </Pressable>
+                {borrador.fondoGradienteAnimado && (
+                  <CampoTexto
+                    etiqueta="Velocidad de la animación (ms, ej. 6000)"
+                    valor={String(borrador.fondoGradienteDuracionMs)}
+                    onChangeText={(v) => {
+                      const n = parseInt(v, 10);
+                      if (!isNaN(n))
+                        cambiar({ fondoGradienteDuracionMs: Math.max(1000, n) });
+                    }}
+                    keyboardType="number-pad"
+                    icono="speedometer-outline"
+                  />
+                )}
               </>
             )}
             {borrador.fondoTipo === "imagen" && (
@@ -1557,7 +1720,7 @@ function AparienciaModal({
           <View style={styles.modalActions}>
             <Pressable
               style={styles.actionButton}
-              onPress={() => setBorrador(temaConfigPorDefecto())}
+              onPress={() => setBorrador(temaConfigPorDefecto(rolActivo))}
             >
               <Text style={styles.actionButtonText}>Restaurar por defecto</Text>
             </Pressable>
@@ -1573,7 +1736,7 @@ function AparienciaModal({
               )}
             </Pressable>
           </View>
-          <Pressable style={{ marginTop: 16 }} onPress={onClose}>
+          <Pressable style={{ marginTop: 16 }} onPress={cerrarYResetear}>
             <Text style={{ textAlign: "center", color: "grey" }}>Cancelar</Text>
           </Pressable>
         </View>

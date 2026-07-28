@@ -1,69 +1,68 @@
 import { CampoTexto } from "@/components/CampoTexto";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
-    actualizarPerfilAdmin,
-    obtenerAdministradorPorId,
+  actualizarPerfilAdmin,
+  obtenerAdministradorPorId,
 } from "@/services/adminAuthServicio";
 import {
-    calcularEstadisticas,
-    filtrarPorCarrera,
-    obtenerResultados,
+  calcularEstadisticas,
+  filtrarPorCarrera,
+  obtenerResultados,
 } from "@/services/adminControlador";
 import {
-    actualizarAsistencia,
-    eliminarAspirante,
-    obtenerAsistenciasRecientes,
-    obtenerAspirantesPorCarrera,
-    reactivarExamenAspirante,
+  actualizarAsistencia,
+  eliminarAspirante,
+  obtenerAsistenciasRecientes,
+  obtenerAspirantesPorCarrera,
+  reactivarExamenAspirante,
 } from "@/services/aspirantesServicio";
-import { supabase } from "@/services/supabaseClient";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
-    actualizarLimites,
-    actualizarModoAutomatico,
-    actualizarRegistroAutomatico,
-    obtenerConfiguracion,
-    reiniciarContadorManual,
+  actualizarLimites,
+  actualizarModoAutomatico,
+  actualizarRegistroAutomatico,
+  obtenerConfiguracion,
+  reiniciarContadorManual,
 } from "@/services/correosConfigServicio";
-import {
-    actualizarLimitesPush,
-    actualizarModoAutomaticoPush,
-    obtenerConfiguracionPush,
-    obtenerHistorialPush,
-    reiniciarContadorPushManual,
-} from "@/services/pushConfigServicio";
 import { obtenerVentanaExamenPorCarrera } from "@/services/preguntasExamenesServicio";
+import {
+  actualizarLimitesPush,
+  actualizarModoAutomaticoPush,
+  obtenerConfiguracionPush,
+  obtenerHistorialPush,
+  reiniciarContadorPushManual,
+} from "@/services/pushConfigServicio";
 import { obtenerResultadosPorCarrera } from "@/services/resultadosAdminServicio";
 import {
-    exportarResultadosExcel,
-    exportarResultadosPDF,
-    type FilaExportable,
-} from "@/utils/exportadorResultadosServicio";
-import {
-    cerrarSesionAdmin,
-    cerrarTodasLasSesiones,
-    guardarSesionAdmin,
-    obtenerSesionAdmin,
+  cerrarTodasLasSesiones,
+  guardarSesionAdmin,
+  obtenerSesionAdmin,
 } from "@/services/sesionServicio";
+import { supabase } from "@/services/supabaseClient";
 import type { ResultadoAspirante } from "@/types/resultadoAspirante";
+import {
+  exportarResultadosExcel,
+  exportarResultadosPDF,
+  type FilaExportable,
+} from "@/utils/exportadorResultadosServicio";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
 } from "react-native";
 
 // Paleta oscura inspirada en el diseño de referencia (Admissions Pro):
@@ -154,111 +153,169 @@ const ModalExportarOpciones = ({
     accion: "compartir" | "descargar",
   ) => void;
   exportando: boolean;
-}) => (
-  <Modal
-    visible={visible}
-    transparent
-    animationType="fade"
-    onRequestClose={onClose}
-  >
-    <Pressable style={styles.modalOverlay} onPress={onClose}>
-      <Pressable
-        style={[styles.modalCard, { width: 360 }]}
-        onPress={(e) => e.stopPropagation()}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 4,
-          }}
-        >
-          <Text style={styles.modalTitle}>Exportar resultados</Text>
-          <Pressable onPress={onClose} hitSlop={10}>
-            <Ionicons name="close" size={20} color={TEMA.textoSecundario} />
-          </Pressable>
-        </View>
-        <Text
-          style={{
-            color: TEMA.textoSecundario,
-            fontSize: 11.5,
-            marginBottom: 14,
-          }}
-        >
-          Documento institucional con marca de agua. Su modificación
-          requiere autorización.
-        </Text>
+}) => {
+  const [formato, setFormato] = useState<"excel" | "pdf">("excel");
+  const colorFormato = formato === "excel" ? TEMA.exito : TEMA.peligro;
 
-        {exportando ? (
-          <View style={{ paddingVertical: 24, alignItems: "center" }}>
-            <ActivityIndicator color={TEMA.primario} />
-            <Text style={{ color: TEMA.textoSecundario, marginTop: 8 }}>
-              Generando documento...
-            </Text>
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable
+          style={[styles.modalCard, { width: 380, padding: 0 }]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          {/* Cabecera con ícono e insignia institucional */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-start",
+              gap: 12,
+              padding: 20,
+              paddingBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: TEMA.tarjetaBordeSuave,
+            }}
+          >
+            <View
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 12,
+                backgroundColor: TEMA.primarioSuave,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={22}
+                color={TEMA.primarioClaro}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Text style={styles.modalTitle}>Exportar resultados</Text>
+                <Pressable onPress={onClose} hitSlop={10}>
+                  <Ionicons
+                    name="close"
+                    size={20}
+                    color={TEMA.textoSecundario}
+                  />
+                </Pressable>
+              </View>
+              <Text
+                style={{
+                  color: TEMA.textoSecundario,
+                  fontSize: 11.5,
+                  marginTop: 3,
+                  lineHeight: 15,
+                }}
+              >
+                Documento institucional con marca de agua. Su modificación
+                requiere autorización.
+              </Text>
+            </View>
           </View>
-        ) : (
-          <>
-            <Text
-              style={{
-                color: TEMA.primarioClaro,
-                fontWeight: "700",
-                fontSize: 11,
-                marginBottom: 6,
-                marginTop: 4,
-              }}
-            >
-              EXCEL (.XLSX)
-            </Text>
-            <View style={{ gap: 8, marginBottom: 14 }}>
-              <OpcionExportar
-                icono="eye-outline"
-                titulo="Ver / Compartir"
-                subtitulo="Abre el diálogo para visualizar o enviar el archivo"
-                color={TEMA.exito}
-                onPress={() => onElegir("excel", "compartir")}
-              />
-              <OpcionExportar
-                icono="download-outline"
-                titulo="Descargar"
-                subtitulo="Guarda el archivo .xlsx sin comprimir"
-                color={TEMA.exito}
-                onPress={() => onElegir("excel", "descargar")}
-              />
-            </View>
 
-            <Text
-              style={{
-                color: TEMA.primarioClaro,
-                fontWeight: "700",
-                fontSize: 11,
-                marginBottom: 6,
-              }}
-            >
-              PDF
-            </Text>
-            <View style={{ gap: 8 }}>
-              <OpcionExportar
-                icono="eye-outline"
-                titulo="Ver / Compartir"
-                subtitulo="Abre el diálogo para visualizar o enviar el archivo"
-                color={TEMA.peligro}
-                onPress={() => onElegir("pdf", "compartir")}
-              />
-              <OpcionExportar
-                icono="download-outline"
-                titulo="Descargar"
-                subtitulo="Guarda el archivo .pdf sin comprimir"
-                color={TEMA.peligro}
-                onPress={() => onElegir("pdf", "descargar")}
-              />
-            </View>
-          </>
-        )}
+          <View style={{ padding: 20, paddingTop: 16 }}>
+            {exportando ? (
+              <View style={{ paddingVertical: 28, alignItems: "center" }}>
+                <ActivityIndicator color={TEMA.primario} />
+                <Text style={{ color: TEMA.textoSecundario, marginTop: 10 }}>
+                  Generando documento...
+                </Text>
+              </View>
+            ) : (
+              <>
+                {/* Selector de formato tipo pestañas, en vez de dos
+                    bloques apilados con títulos sueltos. */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderRadius: 10,
+                    padding: 3,
+                    marginBottom: 16,
+                  }}
+                >
+                  {(["excel", "pdf"] as const).map((f) => {
+                    const activo = formato === f;
+                    const c = f === "excel" ? TEMA.exito : TEMA.peligro;
+                    return (
+                      <Pressable
+                        key={f}
+                        onPress={() => setFormato(f)}
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          paddingVertical: 9,
+                          borderRadius: 8,
+                          backgroundColor: activo
+                            ? "rgba(255,255,255,0.08)"
+                            : "transparent",
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            f === "excel" ? "grid-outline" : "document-outline"
+                          }
+                          size={15}
+                          color={activo ? c : TEMA.textoSecundario}
+                        />
+                        <Text
+                          style={{
+                            color: activo ? TEMA.texto : TEMA.textoSecundario,
+                            fontWeight: "700",
+                            fontSize: 12.5,
+                          }}
+                        >
+                          {f === "excel" ? "Excel (.xlsx)" : "PDF"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={{ gap: 8 }}>
+                  <OpcionExportar
+                    icono="eye-outline"
+                    titulo="Ver / Compartir"
+                    subtitulo="Abre el diálogo para visualizar o enviar el archivo"
+                    color={colorFormato}
+                    onPress={() => onElegir(formato, "compartir")}
+                  />
+                  <OpcionExportar
+                    icono="download-outline"
+                    titulo="Descargar"
+                    subtitulo={`Guarda el archivo .${
+                      formato === "excel" ? "xlsx" : "pdf"
+                    } sin comprimir`}
+                    color={colorFormato}
+                    onPress={() => onElegir(formato, "descargar")}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        </Pressable>
       </Pressable>
-    </Pressable>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 /**
  * Panel administrativo. Migrado de lib/presentacion/panel_admin.dart.
@@ -544,89 +601,6 @@ const SeccionTitulo = ({
   </View>
 );
 
-const SizedBox = ({ height, width }: { height?: number; width?: number }) => (
-  <View style={{ height, width }} />
-);
-
-const BarraProgreso = ({
-  valor,
-  total,
-  color,
-}: {
-  valor: number;
-  total: number;
-  color: string;
-}) => {
-  const porcentaje = total > 0 ? (valor / total) * 100 : 0;
-  return (
-    <View style={styles.barraProgresoFondo}>
-      <View
-        style={[
-          styles.barraProgresoRelleno,
-          { width: `${porcentaje}%`, backgroundColor: color },
-        ]}
-      />
-    </View>
-  );
-};
-
-const ContenedorReporte = ({ children }: { children: React.ReactNode }) => (
-  <View style={styles.resContenedorReporte}>{children}</View>
-);
-
-const FilaReporte = ({
-  titulo,
-  valor,
-  children,
-}: {
-  titulo: string;
-  valor?: string;
-  children?: React.ReactNode;
-}) => (
-  <View style={styles.resFilaReporte}>
-    <Text style={styles.resTituloFilaReporte}>{titulo}</Text>
-    {valor && <Text style={styles.resValorFilaReporte}>{valor}</Text>}
-    {children}
-  </View>
-);
-
-const GraficaDistribucion = ({ distribucion }: { distribucion: number[] }) => {
-  const maxValor = Math.max(...distribucion, 1);
-  const rangos = ["0-19", "20-39", "40-59", "60-79", "80-100"];
-
-  return (
-    <View style={styles.resGraficaContenedor}>
-      {distribucion.map((valor, i) => (
-        <View key={rangos[i]} style={styles.resGraficaBarraContenedor}>
-          <View style={styles.resGraficaBarra}>
-            <View
-              style={{
-                height: `${(valor / maxValor) * 100}%`,
-                width: "100%",
-                backgroundColor: TEMA.primario,
-                borderRadius: 4,
-              }}
-            />
-          </View>
-          <Text style={styles.resGraficaEtiquetaBarra}>{rangos[i]}</Text>
-        </View>
-      ))}
-    </View>
-  );
-};
-
-const ConclusionItem = ({
-  icon,
-  texto,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  texto: string;
-}) => (
-  <View style={styles.resConclusionItem}>
-    <Ionicons name={icon} size={16} color={TEMA.primarioClaro} />
-    <Text style={styles.resConclusionTexto}>{texto}</Text>
-  </View>
-);
 // Header + menú de cuenta + barra de pestañas (equivalente a _construirHeader()
 // + TabBar en panel_admin.dart)
 const HeaderAdmin = ({
@@ -838,7 +812,13 @@ const ModalNotificaciones = ({
         <View
           style={[
             styles.modalCard,
-            { marginTop: 64, marginRight: 16, alignSelf: "flex-end", width: 340, maxHeight: 440 },
+            {
+              marginTop: 64,
+              marginRight: 16,
+              alignSelf: "flex-end",
+              width: 340,
+              maxHeight: 440,
+            },
           ]}
         >
           <View
@@ -948,7 +928,9 @@ export default function PanelScreen() {
   }, []);
 
   useEffect(() => {
-    cargarAsistenciasRecientes();
+    setTimeout(() => {
+      cargarAsistenciasRecientes();
+    }, 0);
 
     const canal = supabase
       .channel("panel-asistencias")
@@ -997,11 +979,13 @@ export default function PanelScreen() {
         ]);
         setResultadosBD(lista);
         setVentanaExamenResultados(ventana);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Error cargando resultados por carrera", e);
+        const detalle =
+          e?.message ?? e?.error_description ?? "Error desconocido.";
         Alert.alert(
-          "Error",
-          "No se pudieron cargar los resultados de la carrera.",
+          "No se pudieron cargar los resultados",
+          `${detalle}\n\nSi esto persiste, revisa los permisos (RLS) de la tabla "aspirantes" en Supabase.`,
         );
       } finally {
         setCargandoResultados(false);
@@ -1086,7 +1070,12 @@ export default function PanelScreen() {
     } finally {
       setCargando(false);
     }
-  }, [router]);
+  }, [
+    router,
+    cargarResultadosPorCarrera,
+    carreraActivaIdManual,
+    carreraActivaResultados,
+  ]);
 
   // Carga inicial de datos al montar la pantalla. Es un efecto legítimo de
   // sincronización con un sistema externo (Supabase) — el patrón que
@@ -1194,10 +1183,7 @@ export default function PanelScreen() {
       setConfigPush((prev) =>
         prev ? { ...prev, modo_automatico: !nuevoValor } : prev,
       );
-      Alert.alert(
-        "Error",
-        "No se pudo actualizar el modo automático de push.",
-      );
+      Alert.alert("Error", "No se pudo actualizar el modo automático de push.");
     }
     setActualizandoPush(false);
   };
@@ -1324,14 +1310,18 @@ export default function PanelScreen() {
     (pestana === "resultados" ? resultadosOrdenados : filtrados).map(
       (r: any, i: number) => ({
         numero: i + 1,
-        folio: r.aspirante.folio,
-        nombre: r.aspirante.nombre,
-        carrera: r.aspirante.carreraNombre,
-        correo: r.aspirante.correo,
-        asistencia: r.aspirante.asistencia ? "Presente" : "Ausente",
+        // La estructura de datos varía si estamos en la pestaña 'resultados'
+        // o en 'inicio'. En 'resultados', los datos están en la raíz del
+        // objeto `r`; en 'inicio' (usando `filtrados`), están en `r.aspirante`.
+        folio: r.aspirante?.folio ?? r.folio,
+        nombre: r.aspirante?.nombre ?? r.nombre,
+        carrera: r.aspirante?.carreraNombre ?? r.carreraNombre,
+        correo: r.aspirante?.correo ?? r.correo,
+        asistencia:
+          (r.aspirante?.asistencia ?? r.asistencia) ? "Presente" : "Ausente",
         calificacion: `${r.calificacion}%`,
         aciertos: r.aciertos,
-        estado: r.aspirante.estado,
+        estado: r.aspirante?.estado ?? r.estado,
       }),
     );
 
@@ -1410,7 +1400,16 @@ export default function PanelScreen() {
         nombre={adminActual?.nombre ?? "Admin"}
         rol={adminActual?.rol ?? "maestro"}
         pestanaActiva={pestana}
-        onCambiarPestana={setPestana}
+        onCambiarPestana={(p) => {
+          // "Evaluación" ya no muestra una pantalla intermedia con un solo
+          // botón: al tocar la pestaña se entra directo a la supervisión
+          // en vivo, evitando el doble clic (tab -> tarjeta -> pantalla).
+          if (p === "evaluacion") {
+            router.push("/vista-evaluaciones");
+            return;
+          }
+          setPestana(p);
+        }}
         onRefrescar={cargarDatos}
         onMiPerfil={abrirEditarPerfil}
         onAjustes={() => router.push("/ajustes-sistema")}
@@ -1811,7 +1810,7 @@ export default function PanelScreen() {
               />
               {configCorreos && (
                 <>
-                  <SizedBox height={16} />
+                  <View style={{ height: 16 }} />
                   <CampanaCorreoCard
                     enviados={configCorreos.correos_enviados_hoy ?? 0}
                     limite={configCorreos.limite_diario ?? 0}
@@ -1823,13 +1822,13 @@ export default function PanelScreen() {
                   />
                 </>
               )}
-              <SizedBox height={16} />
+              <View style={{ height: 16 }} />
               <HistorialCorreoCard
                 onVerDetalles={() => setHistorialModalVisible(true)}
               />
               {configPush && (
                 <>
-                  <SizedBox height={16} />
+                  <View style={{ height: 16 }} />
                   <CampanaCorreoCard
                     titulo="Notificaciones Push"
                     enviados={configPush.notificaciones_enviadas_hoy ?? 0}
@@ -1842,13 +1841,13 @@ export default function PanelScreen() {
                   />
                 </>
               )}
-              <SizedBox height={16} />
+              <View style={{ height: 16 }} />
               <HistorialCorreoCard
                 titulo="Historial de Push"
                 subtitulo="Consulta qué notificaciones se enviaron, se omitieron por el límite o fallaron."
                 onVerDetalles={() => setHistorialPushModalVisible(true)}
               />
-              <SizedBox height={24} />
+              <View style={{ height: 24 }} />
               <SeccionTitulo titulo="Gestión de Contenido" />
               <ActionTile
                 title="Banco de Preguntas"
@@ -1857,7 +1856,7 @@ export default function PanelScreen() {
                 color="#8B5CF6"
                 onTap={() => router.push("/gestionar-preguntas")}
               />
-              <SizedBox height={12} />
+              <View style={{ height: 12 }} />
               <ActionTile
                 title="Materiales de Estudio"
                 subtitle="Subir, ver, reemplazar o eliminar PDFs, audios, imágenes y más"
@@ -1865,7 +1864,7 @@ export default function PanelScreen() {
                 color="#F59E0B"
                 onTap={() => router.push("/gestionar-materiales")}
               />
-              <SizedBox height={12} />
+              <View style={{ height: 12 }} />
               <ActionTile
                 title="Gestionar Cronograma"
                 subtitle="Publicar y editar fechas importantes del proceso"
@@ -1873,7 +1872,7 @@ export default function PanelScreen() {
                 color="#10B981"
                 onTap={() => router.push("/gestionar-cronograma")}
               />
-              <SizedBox height={12} />
+              <View style={{ height: 12 }} />
               <ActionTile
                 title="Avisos para Aspirantes"
                 subtitle="Publicar anuncios en el tablón que ven los aspirantes"
@@ -2174,10 +2173,13 @@ const BandejaResultados = ({
           <Pressable
             style={[
               styles.resBotonExportar,
-              { backgroundColor: TEMA.primario },
+              {
+                backgroundColor: TEMA.primario,
+                opacity: resultados.length === 0 ? 0.45 : 1,
+              },
             ]}
             onPress={onExportar}
-            disabled={exportando}
+            disabled={exportando || resultados.length === 0}
           >
             {exportando ? (
               <ActivityIndicator size="small" color="white" />
@@ -2577,7 +2579,7 @@ const HistorialCorreoCard = ({
       </View>
     </View>
     <Text style={styles.campanaNumeroSub}>{subtitulo}</Text>
-    <SizedBox height={16} />
+    <View style={{ height: 16 }} />
     <Pressable style={styles.campanaBotonSecundario} onPress={onVerDetalles}>
       <Ionicons name="eye-outline" size={16} color={TEMA.texto} />
       <Text style={styles.campanaBotonSecundarioTexto}>
@@ -3820,7 +3822,11 @@ function PushConfigModal({
 
                 {excedido && (
                   <View style={styles.avisoLimiteExcedido}>
-                    <Ionicons name="warning-outline" size={16} color="#DC2626" />
+                    <Ionicons
+                      name="warning-outline"
+                      size={16}
+                      color="#DC2626"
+                    />
                     <Text style={styles.avisoLimiteExcedidoTexto}>
                       Se alcanzó el límite diario: los envíos nuevos se están
                       omitiendo hasta que reinicies el contador o suba el
@@ -3926,10 +3932,13 @@ function HistorialPushModal({
 
   useEffect(() => {
     if (!visible) return;
-    setCargando(true);
-    obtenerHistorialPush({ limite: 50 })
-      .then(setHistorial)
-      .finally(() => setCargando(false));
+    const id = setTimeout(() => {
+      setCargando(true);
+      obtenerHistorialPush({ limite: 50 })
+        .then(setHistorial)
+        .finally(() => setCargando(false));
+    }, 0);
+    return () => clearTimeout(id);
   }, [visible]);
 
   return (
@@ -3973,13 +3982,15 @@ function HistorialPushModal({
               Aún no se ha enviado ninguna notificación push.
             </Text>
           ) : (
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ maxHeight: 420 }}
+            >
               {historial.map((item) => {
-                const etiqueta =
-                  ETIQUETA_ESTADO_PUSH[item.estado] ?? {
-                    texto: item.estado,
-                    color: TEMA.textoSecundario,
-                  };
+                const etiqueta = ETIQUETA_ESTADO_PUSH[item.estado] ?? {
+                  texto: item.estado,
+                  color: TEMA.textoSecundario,
+                };
                 return (
                   <View key={item.id} style={styles.historialItem}>
                     <View
@@ -3989,7 +4000,10 @@ function HistorialPushModal({
                         alignItems: "center",
                       }}
                     >
-                      <Text style={styles.historialItemTitulo} numberOfLines={1}>
+                      <Text
+                        style={styles.historialItemTitulo}
+                        numberOfLines={1}
+                      >
                         {item.titulo}
                       </Text>
                       <Text
@@ -4002,11 +4016,17 @@ function HistorialPushModal({
                         {etiqueta.texto}
                       </Text>
                     </View>
-                    <Text style={styles.historialItemSubtitulo} numberOfLines={2}>
+                    <Text
+                      style={styles.historialItemSubtitulo}
+                      numberOfLines={2}
+                    >
                       {item.cuerpo}
                     </Text>
                     {!!item.detalle && (
-                      <Text style={styles.historialItemDetalle} numberOfLines={2}>
+                      <Text
+                        style={styles.historialItemDetalle}
+                        numberOfLines={2}
+                      >
                         {item.detalle}
                       </Text>
                     )}
