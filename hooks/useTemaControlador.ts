@@ -62,9 +62,9 @@ export function useTemaControlador(rol: RolTema) {
   const guardar = useCallback(async (nuevo: TemaConfig) => {
     const anterior = tema;
     setTema(nuevo);
-    const ok = await guardarTema(nuevo);
-    if (!ok) setTema(anterior);
-    return ok;
+    const { exito, error } = await guardarTema(nuevo);
+    if (!exito) setTema(anterior);
+    return { exito, error };
   }, [tema]);
 
   return {

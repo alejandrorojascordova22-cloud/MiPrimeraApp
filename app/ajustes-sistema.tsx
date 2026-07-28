@@ -27,11 +27,13 @@ import {
   obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { temaConfigPorDefecto, type TemaConfig } from "@/services/temaConfig";
+import { subirImagenFondoTema } from "@/services/temaConfigServicio";
 import {
   esContraseniaFuerte,
   obtenerFeedbackContrasena,
 } from "@/utils/seguridadServicio";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import { Stack, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
@@ -1439,17 +1441,61 @@ function AparienciaModal({
   const cambiar = (cambios: Partial<TemaConfig>) =>
     setBorrador((b) => ({ ...b, ...cambios }));
 
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+
   const guardarCambios = async () => {
     setGuardando(true);
-    const exito = await guardar(borrador);
-    setGuardando(false);
-    Alert.alert(
+    let exito = false;
+    let error: string | undefined;
+    try {
+      const res = await guardar(borrador);
+      exito = res.exito;
+      error = res.error;
+    } catch (e) {
+      console.error("Excepción al guardar apariencia:", e);
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      setGuardando(false);
+    }
+    avisar(
       exito ? "Listo" : "Error",
       exito
         ? "Apariencia guardada y aplicada a todo el sistema."
-        : "No se pudo guardar. Revisa que exista la tabla configuracion_tema en Supabase.",
+        : `No se pudo guardar. ${error ?? "Revisa que exista la tabla configuracion_tema en Supabase."}`,
     );
     if (exito) cerrarYResetear();
+  };
+
+  const elegirImagenFondo = async () => {
+    try {
+      const resultado = await DocumentPicker.getDocumentAsync({
+        type: "image/*",
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (resultado.canceled || !resultado.assets?.length) return;
+      const archivo = resultado.assets[0];
+
+      setSubiendoImagen(true);
+      const respuesta = await fetch(archivo.uri);
+      const bytes = await respuesta.blob();
+      const url = await subirImagenFondoTema(
+        rolActivo,
+        bytes,
+        archivo.name,
+        archivo.mimeType
+      );
+      if (url) {
+        cambiar({ fondoImagenUrl: url });
+      } else {
+        avisar("Error", "No se pudo subir la imagen. Intenta de nuevo.");
+      }
+    } catch (e) {
+      console.error("Excepción al elegir/subir imagen de fondo:", e);
+      avisar("Error", "Ocurrió un problema al seleccionar la imagen.");
+    } finally {
+      setSubiendoImagen(false);
+    }
   };
 
   return (
@@ -1669,8 +1715,29 @@ function AparienciaModal({
             )}
             {borrador.fondoTipo === "imagen" && (
               <>
+                <Text style={styles.segmentedLabel}>IMAGEN DE FONDO</Text>
+                <Pressable
+                  style={styles.selectorImagenBoton}
+                  onPress={elegirImagenFondo}
+                  disabled={subiendoImagen}
+                >
+                  {subiendoImagen ? (
+                    <ActivityIndicator size="small" color={ColoresApp.primario} />
+                  ) : (
+                    <Ionicons
+                      name="image-outline"
+                      size={18}
+                      color={ColoresApp.primario}
+                    />
+                  )}
+                  <Text style={styles.selectorImagenTexto} numberOfLines={1}>
+                    {subiendoImagen
+                      ? "Subiendo imagen..."
+                      : "Elegir imagen desde mi celular o computadora"}
+                  </Text>
+                </Pressable>
                 <CampoTexto
-                  etiqueta="URL de la imagen de fondo"
+                  etiqueta="O pega la URL de una imagen (opcional)"
                   valor={borrador.fondoImagenUrl ?? ""}
                   onChangeText={(v) => cambiar({ fondoImagenUrl: v })}
                   icono="link-outline"
@@ -1746,6 +1813,22 @@ function AparienciaModal({
 }
 
 const styles = StyleSheet.create({
+  selectorImagenBoton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: ColoresApp.primario,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 4,
+  },
+  selectorImagenTexto: {
+    color: ColoresApp.primario,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
   container: { flex: 1, backgroundColor: ColoresApp.fondo },
   scrollContent: { paddingVertical: 28, paddingHorizontal: 20 },
   contentWrapper: {
