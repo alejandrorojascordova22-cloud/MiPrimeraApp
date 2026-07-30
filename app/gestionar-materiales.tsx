@@ -1,5 +1,5 @@
-import { ColoresApp } from '@/constants/coloresApp';
-import { obtenerCarreras } from '@/services/carrerasServicio';
+import { ColoresApp } from "@/constants/coloresApp";
+import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
   ETIQUETAS_POR_TIPO_MATERIAL,
   actualizarInfoMaterial,
@@ -8,11 +8,12 @@ import {
   obtenerMaterialesEstudio,
   reemplazarArchivoMaterial,
   subirMaterialEstudio,
-} from '@/services/materialesEstudioServicio';
-import { Ionicons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
-import { Stack } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+} from "@/services/materialesEstudioServicio";
+import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import { Stack } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { useResponsivo } from "@/utils/responsive";
 import {
   ActivityIndicator,
   Alert,
@@ -27,24 +28,10 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-
-/**
- * Alert.alert de React Native casi nunca se ve en navegador web (queda en
- * silencio, sin error). Este helper hace lo mismo pero en web además
- * loguea a consola y usa window.alert, para que el error sea visible.
- */
-function avisar(titulo: string, mensaje?: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    console.error(`[${titulo}]`, mensaje ?? '');
-    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
-  } else {
-    Alert.alert(titulo, mensaje);
-  }
-}
+} from "react-native";
 
 // --- TIPOS ---
-type TipoMaterial = 'pdf' | 'audio' | 'imagen' | 'video' | 'otro';
+type TipoMaterial = "pdf" | "audio" | "imagen" | "video" | "otro";
 
 type MaterialEstudio = {
   id: number;
@@ -64,54 +51,89 @@ type Carrera = { id: number; nombre: string };
 
 // --- CONSTANTES DE ESTILO ---
 const Colors = {
-  orange: '#F97316',
-  purple: '#8B5CF6',
-  teal: '#14B8A6',
-  red: '#EF4444',
-  blueGrey: '#64748B',
+  orange: "#F97316",
+  purple: "#8B5CF6",
+  teal: "#14B8A6",
+  red: "#EF4444",
+  blueGrey: "#64748B",
 };
-const TIPOS_DISPONIBLES: TipoMaterial[] = ['pdf', 'audio', 'imagen', 'video', 'otro'];
 
 // --- COMPONENTES REUTILIZABLES ---
 
 const getTipoInfo = (tipo: TipoMaterial) => {
   switch (tipo) {
-    case 'pdf': return { icon: 'document-text-outline' as const, color: Colors.orange };
-    case 'audio': return { icon: 'musical-notes-outline' as const, color: Colors.purple };
-    case 'imagen': return { icon: 'image-outline' as const, color: Colors.teal };
-    case 'video': return { icon: 'videocam-outline' as const, color: Colors.red };
-    default: return { icon: 'document-outline' as const, color: Colors.blueGrey };
+    case "pdf":
+      return { icon: "document-text-outline" as const, color: Colors.orange };
+    case "audio":
+      return { icon: "musical-notes-outline" as const, color: Colors.purple };
+    case "imagen":
+      return { icon: "image-outline" as const, color: Colors.teal };
+    case "video":
+      return { icon: "videocam-outline" as const, color: Colors.red };
+    default:
+      return { icon: "document-outline" as const, color: Colors.blueGrey };
   }
 };
 
 function inferirTipoPorNombre(nombre: string): TipoMaterial {
-  const ext = nombre.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'pdf') return 'pdf';
-  if (['mp3', 'wav', 'm4a', 'ogg', 'aac'].includes(ext)) return 'audio';
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'imagen';
-  if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) return 'video';
-  return 'otro';
+  const ext = nombre.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "pdf";
+  if (["mp3", "wav", "m4a", "ogg", "aac"].includes(ext)) return "audio";
+  if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "imagen";
+  if (["mp4", "mov", "avi", "mkv"].includes(ext)) return "video";
+  return "otro";
 }
 
 const formatBytes = (bytes?: number) => {
-  if (bytes == null) return '';
+  if (bytes == null) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 const formatDate = (iso?: string) => {
-  if (!iso) return '—';
+  if (!iso) return "—";
   try {
     const dt = new Date(iso);
-    return dt.toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return dt.toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
-    return '—';
+    return "—";
   }
 };
 
-const MaterialCard = ({ material, onEdit, onDelete, onView }: { material: MaterialEstudio, onEdit: () => void, onDelete: () => void, onView: () => void }) => {
+const MaterialCard = ({
+  material,
+  onEdit,
+  onDelete,
+  onView,
+}: {
+  material: MaterialEstudio;
+  onEdit: () => void;
+  onDelete: () => void;
+  onView: () => void;
+}) => {
   const { icon, color } = getTipoInfo(material.tipo);
+  const { esMovil } = useResponsivo();
+
+  const botones = (
+    <>
+      <Pressable hitSlop={8} onPress={onView}>
+        <Ionicons name="eye-outline" size={20} color="gray" />
+      </Pressable>
+      <Pressable hitSlop={8} onPress={onEdit}>
+        <Ionicons name="create-outline" size={20} color="gray" />
+      </Pressable>
+      <Pressable hitSlop={8} onPress={onDelete}>
+        <Ionicons name="trash-outline" size={20} color="red" />
+      </Pressable>
+    </>
+  );
 
   return (
     <View style={styles.card}>
@@ -120,23 +142,60 @@ const MaterialCard = ({ material, onEdit, onDelete, onView }: { material: Materi
       </View>
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle} numberOfLines={1}>{material.titulo}</Text>
-          <View style={[styles.typeBadge, { backgroundColor: `${color}20` }]}>
-            <Text style={[styles.typeBadgeText, { color }]}>{ETIQUETAS_POR_TIPO_MATERIAL[material.tipo] ?? material.tipo.toUpperCase()}</Text>
-          </View>
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {material.titulo}
+          </Text>
+          {/* En escritorio el badge cabe junto al título; en móvil se va
+              a su propia línea para no competir por el ancho con el título
+              ni con los botones de acciones (que en desktop van flotando
+              arriba a la derecha). */}
+          {!esMovil && (
+            <View style={[styles.typeBadge, { backgroundColor: `${color}20` }]}>
+              <Text style={[styles.typeBadgeText, { color }]}>
+                {ETIQUETAS_POR_TIPO_MATERIAL[material.tipo] ??
+                  material.tipo.toUpperCase()}
+              </Text>
+            </View>
+          )}
         </View>
-        <Text style={styles.cardSubtitle} numberOfLines={1}>{material.nombre_archivo}</Text>
+        {esMovil && (
+          <View style={[styles.typeBadge, styles.typeBadgeMovil, { backgroundColor: `${color}20` }]}>
+            <Text style={[styles.typeBadgeText, { color }]}>
+              {ETIQUETAS_POR_TIPO_MATERIAL[material.tipo] ??
+                material.tipo.toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.cardSubtitle} numberOfLines={1}>
+          {material.nombre_archivo}
+        </Text>
         {material.materia ? (
-          <Text style={[styles.cardMeta, { color: ColoresApp.primario, fontWeight: '600' }]}>{material.materia}</Text>
+          <Text
+            style={[
+              styles.cardMeta,
+              { color: ColoresApp.primario, fontWeight: "600" },
+            ]}
+          >
+            {material.materia}
+          </Text>
         ) : null}
-        {material.descripcion ? <Text style={styles.cardDescription}>{material.descripcion}</Text> : null}
-        <Text style={styles.cardMeta}>{`${formatDate(material.creado_en)} · ${formatBytes(material.tamano_bytes)}`}</Text>
+        {material.descripcion ? (
+          <Text style={styles.cardDescription} numberOfLines={3}>
+            {material.descripcion}
+          </Text>
+        ) : null}
+        <Text
+          style={styles.cardMeta}
+        >{`${formatDate(material.creado_en)} · ${formatBytes(material.tamano_bytes)}`}</Text>
+        {/* En móvil los botones van en su propia fila, debajo del contenido,
+            para no taparse con el título como pasaba con position:absolute. */}
+        {esMovil && (
+          <View style={styles.actionsContainerMovil}>{botones}</View>
+        )}
       </View>
-      <View style={styles.actionsContainer}>
-        <Pressable onPress={onView}><Ionicons name="eye-outline" size={20} color="gray" /></Pressable>
-        <Pressable onPress={onEdit}><Ionicons name="create-outline" size={20} color="gray" /></Pressable>
-        <Pressable onPress={onDelete}><Ionicons name="trash-outline" size={20} color="red" /></Pressable>
-      </View>
+      {!esMovil && (
+        <View style={styles.actionsContainer}>{botones}</View>
+      )}
     </View>
   );
 };
@@ -156,22 +215,34 @@ const SelectorCarreras = ({
 }) => (
   <View style={{ gap: 8 }}>
     <Text style={styles.fieldLabel}>¿A quién aplica este material?</Text>
-    <View style={{ flexDirection: 'row', gap: 8 }}>
+    <View style={{ flexDirection: "row", gap: 8 }}>
       <Pressable
         style={[styles.scopeChip, aplicaATodas && styles.scopeChipActivo]}
         onPress={() => onToggleTodas(true)}
       >
-        <Text style={aplicaATodas ? styles.scopeChipTextoActivo : styles.scopeChipTexto}>Todas las carreras</Text>
+        <Text
+          style={
+            aplicaATodas ? styles.scopeChipTextoActivo : styles.scopeChipTexto
+          }
+        >
+          Todas las carreras
+        </Text>
       </Pressable>
       <Pressable
         style={[styles.scopeChip, !aplicaATodas && styles.scopeChipActivo]}
         onPress={() => onToggleTodas(false)}
       >
-        <Text style={!aplicaATodas ? styles.scopeChipTextoActivo : styles.scopeChipTexto}>Carreras específicas</Text>
+        <Text
+          style={
+            !aplicaATodas ? styles.scopeChipTextoActivo : styles.scopeChipTexto
+          }
+        >
+          Carreras específicas
+        </Text>
       </Pressable>
     </View>
     {!aplicaATodas && (
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {carreras.map((c) => {
           const activa = carrerasSeleccionadas.includes(c.id);
           return (
@@ -180,12 +251,20 @@ const SelectorCarreras = ({
               style={[styles.scopeChip, activa && styles.scopeChipActivo]}
               onPress={() => onToggleCarrera(c.id)}
             >
-              <Text style={activa ? styles.scopeChipTextoActivo : styles.scopeChipTexto}>{c.nombre}</Text>
+              <Text
+                style={
+                  activa ? styles.scopeChipTextoActivo : styles.scopeChipTexto
+                }
+              >
+                {c.nombre}
+              </Text>
             </Pressable>
           );
         })}
         {carreras.length === 0 && (
-          <Text style={{ fontSize: 12, color: ColoresApp.textoSecundario }}>No hay carreras registradas.</Text>
+          <Text style={{ fontSize: 12, color: ColoresApp.textoSecundario }}>
+            No hay carreras registradas.
+          </Text>
         )}
       </View>
     )}
@@ -193,50 +272,82 @@ const SelectorCarreras = ({
 );
 
 // Modal para subir un material nuevo
-const SubirMaterialModal = ({ visible, onClose, onGuardado, carreras }: { visible: boolean; onClose: () => void; onGuardado: () => void; carreras: Carrera[] }) => {
-  const [titulo, setTitulo] = useState('');
-  const [descripcion, setDescripcion] = useState('');
-  const [materia, setMateria] = useState('');
+const SubirMaterialModal = ({
+  visible,
+  onClose,
+  onGuardado,
+  carreras,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onGuardado: () => void;
+  carreras: Carrera[];
+}) => {
+  const avisar = (titulo: string, mensaje?: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      console.error(`[${titulo}]`, mensaje ?? "");
+      window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
+    } else {
+      Alert.alert(titulo, mensaje);
+    }
+  };
+
+  const [titulo, setTitulo] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [materia, setMateria] = useState("");
   const [aplicaATodas, setAplicaATodas] = useState(true);
-  const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<number[]>([]);
-  const [archivo, setArchivo] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<number[]>(
+    [],
+  );
+  const [archivo, setArchivo] =
+    useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [subiendo, setSubiendo] = useState(false);
 
-  useEffect(() => {
-    if (visible) {
-      setTitulo('');
-      setDescripcion('');
-      setMateria('');
-      setAplicaATodas(true);
-      setCarrerasSeleccionadas([]);
-      setArchivo(null);
-    }
-  }, [visible]);
+  const resetAndClose = () => {
+    setTitulo("");
+    setDescripcion("");
+    setMateria("");
+    setAplicaATodas(true);
+    setCarrerasSeleccionadas([]);
+    setArchivo(null);
+    setSubiendo(false);
+    onClose();
+  };
 
   const toggleCarrera = (id: number) => {
     setCarrerasSeleccionadas((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
     );
   };
 
   const elegirArchivo = async () => {
-    const resultado = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
-    if (!resultado.canceled && resultado.assets && resultado.assets.length > 0) {
+    const resultado = await DocumentPicker.getDocumentAsync({
+      multiple: false,
+      copyToCacheDirectory: true,
+    });
+    if (
+      !resultado.canceled &&
+      resultado.assets &&
+      resultado.assets.length > 0
+    ) {
       setArchivo(resultado.assets[0]);
     }
   };
 
   const handleGuardar = async () => {
     if (!titulo.trim()) {
-      avisar('Falta información', 'Escribe un título para el material.');
+      avisar("Falta información", "Escribe un título para el material.");
       return;
     }
     if (!archivo) {
-      avisar('Falta información', 'Selecciona un archivo para subir.');
+      avisar("Falta información", "Selecciona un archivo para subir.");
       return;
     }
     if (!aplicaATodas && carrerasSeleccionadas.length === 0) {
-      avisar('Falta información', 'Elige al menos una carrera, o marca "Todas las carreras".');
+      avisar(
+        "Falta información",
+        'Elige al menos una carrera, o marca "Todas las carreras".',
+      );
       return;
     }
     setSubiendo(true);
@@ -257,26 +368,42 @@ const SubirMaterialModal = ({ visible, onClose, onGuardado, carreras }: { visibl
       });
       if (res) {
         onGuardado();
-        onClose();
+        resetAndClose();
       } else {
-        console.error('subirMaterialEstudio devolvió null');
-        avisar('Error', 'No se pudo subir el material.');
+        console.error("subirMaterialEstudio devolvió null");
+        avisar("Error", "No se pudo subir el material.");
       }
     } catch (e) {
-      console.error('Excepción al subir material:', e);
-      avisar('Error', 'Ocurrió un problema al subir el archivo.');
+      console.error("Excepción al subir material:", e);
+      avisar("Error", "Ocurrió un problema al subir el archivo.");
     } finally {
       setSubiendo(false);
     }
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={resetAndClose}
+    >
       <View style={styles.modalBackdrop}>
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Agregar material de estudio</Text>
-          <TextInput style={styles.input} placeholder="Título" value={titulo} onChangeText={setTitulo} />
-          <TextInput style={styles.input} placeholder="Descripción (opcional)" value={descripcion} onChangeText={setDescripcion} multiline />
+          <TextInput
+            style={styles.input}
+            placeholder="Título"
+            value={titulo}
+            onChangeText={setTitulo}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Descripción (opcional)"
+            value={descripcion}
+            onChangeText={setDescripcion}
+            multiline
+          />
           <TextInput
             style={styles.input}
             placeholder="Materia/tema (ej. Matemáticas) — opcional"
@@ -291,17 +418,37 @@ const SubirMaterialModal = ({ visible, onClose, onGuardado, carreras }: { visibl
             onToggleCarrera={toggleCarrera}
           />
           <Pressable style={styles.filePickerButton} onPress={elegirArchivo}>
-            <Ionicons name="attach-outline" size={18} color={ColoresApp.primario} />
-            <Text style={{ color: ColoresApp.primario, fontWeight: '600' }} numberOfLines={1}>
-              {archivo ? archivo.name : 'Seleccionar archivo'}
+            <Ionicons
+              name="attach-outline"
+              size={18}
+              color={ColoresApp.primario}
+            />
+            <Text
+              style={{ color: ColoresApp.primario, fontWeight: "600" }}
+              numberOfLines={1}
+            >
+              {archivo ? archivo.name : "Seleccionar archivo"}
             </Text>
           </Pressable>
           <View style={styles.modalActions}>
-            <Pressable style={[styles.modalButton, styles.modalButtonCancel]} onPress={onClose}>
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonCancel]}
+              onPress={resetAndClose}
+            >
               <Text>Cancelar</Text>
             </Pressable>
-            <Pressable style={[styles.modalButton, styles.modalButtonSubmit]} onPress={handleGuardar} disabled={subiendo}>
-              {subiendo ? <ActivityIndicator color="white" size="small" /> : <Text style={{ color: 'white', fontWeight: 'bold' }}>Subir</Text>}
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonSubmit]}
+              onPress={handleGuardar}
+              disabled={subiendo}
+            >
+              {subiendo ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={{ color: "white", fontWeight: "bold" }}>
+                  Subir
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -311,35 +458,67 @@ const SubirMaterialModal = ({ visible, onClose, onGuardado, carreras }: { visibl
 };
 
 // Modal para editar título/descripción o reemplazar el archivo
-const EditarMaterialModal = ({ visible, onClose, material, onGuardado, carreras }: { visible: boolean; onClose: () => void; material: MaterialEstudio | null; onGuardado: () => void; carreras: Carrera[] }) => {
-  const [titulo, setTitulo] = useState('');
-  const [descripcion, setDescripcion] = useState('');
-  const [materia, setMateria] = useState('');
-  const [aplicaATodas, setAplicaATodas] = useState(true);
-  const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<number[]>([]);
-  const [nuevoArchivo, setNuevoArchivo] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+const EditarMaterialModal = ({
+  visible,
+  onClose,
+  material,
+  onGuardado,
+  carreras,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  material: MaterialEstudio | null;
+  onGuardado: () => void;
+  carreras: Carrera[];
+}) => {
+  const avisar = (titulo: string, mensaje?: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      console.error(`[${titulo}]`, mensaje ?? "");
+      window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
+    } else {
+      Alert.alert(titulo, mensaje);
+    }
+  };
+
+  // El padre remonta este componente con una `key` distinta cada vez que se
+  // abre un material a editar (ver `key={editor-${editorKey}}` en el padre),
+  // así que es seguro inicializar el estado directamente desde `material`
+  // aquí, sin necesidad de un useEffect que lo sincronice después del montaje.
+  const [titulo, setTitulo] = useState(material?.titulo ?? "");
+  const [descripcion, setDescripcion] = useState(material?.descripcion ?? "");
+  const [materia, setMateria] = useState(material?.materia ?? "");
+  const [aplicaATodas, setAplicaATodas] = useState(
+    material?.aplica_a_todas ?? true,
+  );
+  const [carrerasSeleccionadas, setCarrerasSeleccionadas] = useState<number[]>(
+    [],
+  );
+  const [nuevoArchivo, setNuevoArchivo] =
+    useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  useEffect(() => {
-    if (visible && material) {
-      setTitulo(material.titulo);
-      setDescripcion(material.descripcion ?? '');
-      setMateria(material.materia ?? '');
-      setAplicaATodas(material.aplica_a_todas ?? true);
-      setCarrerasSeleccionadas([]); // el admin puede re-elegir si cambia de "todas" a "específicas"
-      setNuevoArchivo(null);
-    }
-  }, [visible, material]);
+  const resetAndClose = () => {
+    setNuevoArchivo(null);
+    setGuardando(false);
+    onClose();
+  };
 
   const toggleCarrera = (id: number) => {
     setCarrerasSeleccionadas((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
     );
   };
 
   const elegirArchivo = async () => {
-    const resultado = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
-    if (!resultado.canceled && resultado.assets && resultado.assets.length > 0) {
+    const resultado = await DocumentPicker.getDocumentAsync({
+      multiple: false,
+      copyToCacheDirectory: true,
+    });
+    if (
+      !resultado.canceled &&
+      resultado.assets &&
+      resultado.assets.length > 0
+    ) {
       setNuevoArchivo(resultado.assets[0]);
     }
   };
@@ -347,11 +526,14 @@ const EditarMaterialModal = ({ visible, onClose, material, onGuardado, carreras 
   const handleGuardar = async () => {
     if (!material) return;
     if (!titulo.trim()) {
-      avisar('Falta información', 'El título no puede quedar vacío.');
+      avisar("Falta información", "El título no puede quedar vacío.");
       return;
     }
     if (!aplicaATodas && carrerasSeleccionadas.length === 0) {
-      avisar('Falta información', 'Elige al menos una carrera, o marca "Todas las carreras".');
+      avisar(
+        "Falta información",
+        'Elige al menos una carrera, o marca "Todas las carreras".',
+      );
       return;
     }
     setGuardando(true);
@@ -381,26 +563,44 @@ const EditarMaterialModal = ({ visible, onClose, material, onGuardado, carreras 
 
       if (okInfo && okAlcance && okArchivo) {
         onGuardado();
-        onClose();
+        resetAndClose();
       } else {
-        console.error('reemplazarArchivoMaterial/actualizarInfoMaterial/asignarCarrerasMaterial devolvió false');
-        avisar('Error', 'No se pudieron guardar todos los cambios.');
+        console.error(
+          "reemplazarArchivoMaterial/actualizarInfoMaterial/asignarCarrerasMaterial devolvió false",
+        );
+        avisar("Error", "No se pudieron guardar todos los cambios.");
       }
     } catch (e) {
-      console.error('Excepción al editar material:', e);
-      avisar('Error', 'Ocurrió un problema al guardar los cambios.');
+      console.error("Excepción al editar material:", e);
+      avisar("Error", "Ocurrió un problema al guardar los cambios.");
     } finally {
       setGuardando(false);
     }
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={resetAndClose}
+    >
       <View style={styles.modalBackdrop}>
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Editar material</Text>
-          <TextInput style={styles.input} placeholder="Título" value={titulo} onChangeText={setTitulo} />
-          <TextInput style={styles.input} placeholder="Descripción (opcional)" value={descripcion} onChangeText={setDescripcion} multiline />
+          <TextInput
+            style={styles.input}
+            placeholder="Título"
+            value={titulo}
+            onChangeText={setTitulo}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Descripción (opcional)"
+            value={descripcion}
+            onChangeText={setDescripcion}
+            multiline
+          />
           <TextInput
             style={styles.input}
             placeholder="Materia/tema (ej. Matemáticas) — opcional"
@@ -415,17 +615,39 @@ const EditarMaterialModal = ({ visible, onClose, material, onGuardado, carreras 
             onToggleCarrera={toggleCarrera}
           />
           <Pressable style={styles.filePickerButton} onPress={elegirArchivo}>
-            <Ionicons name="swap-horizontal-outline" size={18} color={ColoresApp.primario} />
-            <Text style={{ color: ColoresApp.primario, fontWeight: '600' }} numberOfLines={1}>
-              {nuevoArchivo ? nuevoArchivo.name : 'Reemplazar archivo (opcional)'}
+            <Ionicons
+              name="swap-horizontal-outline"
+              size={18}
+              color={ColoresApp.primario}
+            />
+            <Text
+              style={{ color: ColoresApp.primario, fontWeight: "600" }}
+              numberOfLines={1}
+            >
+              {nuevoArchivo
+                ? nuevoArchivo.name
+                : "Reemplazar archivo (opcional)"}
             </Text>
           </Pressable>
           <View style={styles.modalActions}>
-            <Pressable style={[styles.modalButton, styles.modalButtonCancel]} onPress={onClose}>
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonCancel]}
+              onPress={resetAndClose}
+            >
               <Text>Cancelar</Text>
             </Pressable>
-            <Pressable style={[styles.modalButton, styles.modalButtonSubmit]} onPress={handleGuardar} disabled={guardando}>
-              {guardando ? <ActivityIndicator color="white" size="small" /> : <Text style={{ color: 'white', fontWeight: 'bold' }}>Guardar</Text>}
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonSubmit]}
+              onPress={handleGuardar}
+              disabled={guardando}
+            >
+              {guardando ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={{ color: "white", fontWeight: "bold" }}>
+                  Guardar
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -437,12 +659,24 @@ const EditarMaterialModal = ({ visible, onClose, material, onGuardado, carreras 
 // --- PANTALLA PRINCIPAL ---
 
 export default function GestionarMaterialesScreen() {
+  const { esMovil } = useResponsivo();
   const [materiales, setMateriales] = useState<MaterialEstudio[]>([]);
   const [carreras, setCarreras] = useState<Carrera[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalSubirVisible, setModalSubirVisible] = useState(false);
-  const [materialEditando, setMaterialEditando] = useState<MaterialEstudio | null>(null);
+  const [materialEditando, setMaterialEditando] =
+    useState<MaterialEstudio | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+
+  const avisar = (titulo: string, mensaje?: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      console.error(`[${titulo}]`, mensaje ?? "");
+      window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
+    } else {
+      Alert.alert(titulo, mensaje);
+    }
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -462,8 +696,11 @@ export default function GestionarMaterialesScreen() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga
+    // inicial de datos desde el servidor al montar la pantalla; no es
+    // estado derivado de props, es una sincronización legítima con Supabase.
     cargar();
-  }, [cargar]);
+  }, [cargar]); // `cargar` está envuelto en useCallback, por lo que este efecto solo se ejecuta una vez.
 
   const handleEliminar = (material: MaterialEstudio) => {
     const ejecutarEliminar = async () => {
@@ -471,14 +708,14 @@ export default function GestionarMaterialesScreen() {
       if (exito) {
         cargar();
       } else {
-        console.error('eliminarMaterialEstudio falló para id:', material.id);
-        avisar('Error', 'No se pudo eliminar el documento.');
+        console.error("eliminarMaterialEstudio falló para id:", material.id);
+        avisar("Error", "No se pudo eliminar el documento.");
       }
     };
 
     // Alert.alert con botones no muestra ningún diálogo en web (queda en
     // silencio), así que ahí usamos window.confirm en su lugar.
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       if (
         window.confirm(
           `¿Eliminar "${material.titulo}"? Se eliminará de forma permanente.`,
@@ -490,22 +727,22 @@ export default function GestionarMaterialesScreen() {
     }
 
     Alert.alert(
-      '¿Eliminar documento?',
+      "¿Eliminar documento?",
       `Se eliminará "${material.titulo}" de forma permanente.`,
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: "Cancelar", style: "cancel" },
         {
-          text: 'Eliminar',
-          style: 'destructive',
+          text: "Eliminar",
+          style: "destructive",
           onPress: ejecutarEliminar,
         },
-      ]
+      ],
     );
   };
 
   const handleVer = (material: MaterialEstudio) => {
     Linking.openURL(material.url_publica).catch(() => {
-      avisar('Error', 'No se pudo abrir el archivo.');
+      avisar("Error", "No se pudo abrir el archivo.");
     });
   };
 
@@ -517,7 +754,9 @@ export default function GestionarMaterialesScreen() {
       return <Text style={styles.emptyText}>Error: {error}</Text>;
     }
     if (materiales.length === 0) {
-      return <Text style={styles.emptyText}>Aún no hay documentos subidos.</Text>;
+      return (
+        <Text style={styles.emptyText}>Aún no hay documentos subidos.</Text>
+      );
     }
     return (
       <FlatList
@@ -527,12 +766,17 @@ export default function GestionarMaterialesScreen() {
           <MaterialCard
             material={item}
             onView={() => handleVer(item)}
-            onEdit={() => setMaterialEditando(item)}
+            onEdit={() => {
+              setEditorKey((k) => k + 1);
+              setMaterialEditando(item);
+            }}
             onDelete={() => handleEliminar(item)}
           />
         )}
         contentContainerStyle={styles.listContainer}
-        refreshControl={<RefreshControl refreshing={cargando} onRefresh={cargar} />}
+        refreshControl={
+          <RefreshControl refreshing={cargando} onRefresh={cargar} />
+        }
       />
     );
   };
@@ -544,9 +788,12 @@ export default function GestionarMaterialesScreen() {
         <Text style={styles.topBarTitulo}>Materiales de estudio</Text>
       </View>
       {renderContent()}
-      <Pressable style={styles.fab} onPress={() => setModalSubirVisible(true)}>
+      <Pressable
+        style={[styles.fab, esMovil && styles.fabMovil]}
+        onPress={() => setModalSubirVisible(true)}
+      >
         <Ionicons name="add" size={24} color="white" />
-        <Text style={styles.fabText}>Agregar documento</Text>
+        {!esMovil && <Text style={styles.fabText}>Agregar documento</Text>}
       </Pressable>
 
       <SubirMaterialModal
@@ -556,9 +803,12 @@ export default function GestionarMaterialesScreen() {
         carreras={carreras}
       />
       <EditarMaterialModal
-        visible={!!materialEditando}
+        key={`editor-${editorKey}`}
+        visible={materialEditando != null}
         material={materialEditando}
-        onClose={() => setMaterialEditando(null)}
+        onClose={() => {
+          setMaterialEditando(null);
+        }}
         onGuardado={cargar}
         carreras={carreras}
       />
@@ -576,29 +826,29 @@ const styles = StyleSheet.create({
   topBar: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
-  topBarTitulo: { fontSize: 15, fontWeight: '600', color: ColoresApp.oscuro },
+  topBarTitulo: { fontSize: 15, fontWeight: "600", color: ColoresApp.oscuro },
   listContainer: {
     padding: 16,
     paddingBottom: 100, // Espacio para el FAB
   },
   emptyText: {
     marginTop: 100,
-    textAlign: 'center',
+    textAlign: "center",
     color: ColoresApp.textoSecundario,
   },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
     padding: 14,
     marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 12,
   },
   iconContainer: {
@@ -609,14 +859,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 8,
   },
   cardTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: ColoresApp.oscuro,
     flexShrink: 1,
   },
@@ -625,9 +875,13 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 99,
   },
+  typeBadgeMovil: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
   typeBadgeText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   cardSubtitle: {
     fontSize: 12,
@@ -645,48 +899,64 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   actionsContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
-    position: 'absolute',
+    position: "absolute",
     top: 8,
     right: 8,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     padding: 4,
   },
+  actionsContainerMovil: {
+    flexDirection: "row",
+    gap: 20,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: ColoresApp.borde,
+  },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 30,
     right: 20,
     backgroundColor: ColoresApp.primario,
     borderRadius: 99,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    boxShadow: '0 4px 6px #0000004D',
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    boxShadow: "0 4px 6px #0000004D",
   },
   fabText: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: "white",
+    fontWeight: "bold",
     fontSize: 16,
+  },
+  fabMovil: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    bottom: 20,
+    right: 16,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   modalContainer: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
-    width: '100%',
+    width: "100%",
     maxWidth: 420,
     gap: 12,
   },
   modalTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     color: ColoresApp.oscuro,
     marginBottom: 4,
   },
@@ -699,18 +969,18 @@ const styles = StyleSheet.create({
     color: ColoresApp.texto,
   },
   filePickerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     borderWidth: 1,
     borderColor: ColoresApp.primario,
-    borderStyle: 'dashed',
+    borderStyle: "dashed",
     borderRadius: 8,
     padding: 12,
   },
   modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "flex-end",
     marginTop: 8,
     gap: 10,
   },
@@ -727,7 +997,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
     color: ColoresApp.textoSecundario,
   },
   scopeChip: {
@@ -736,7 +1006,7 @@ const styles = StyleSheet.create({
     borderRadius: 99,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
-    backgroundColor: 'white',
+    backgroundColor: "white",
   },
   scopeChipActivo: {
     backgroundColor: ColoresApp.primarioFondo,
@@ -749,6 +1019,6 @@ const styles = StyleSheet.create({
   scopeChipTextoActivo: {
     fontSize: 12,
     color: ColoresApp.primario,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

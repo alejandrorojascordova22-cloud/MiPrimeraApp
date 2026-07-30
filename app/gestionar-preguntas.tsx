@@ -1,72 +1,34 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ColoresApp } from "@/constants/coloresApp";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
-  actualizarExamen,
-  agregarPreguntasBloque,
-  crearExamen,
-  eliminarExamen,
-  eliminarPregunta,
-  obtenerTodasPreguntas,
-  reemplazarPreguntasDeExamen,
-  vincularCarrerasAExamen,
+    actualizarExamen,
+    agregarPreguntasBloque,
+    crearExamen,
+    eliminarExamen,
+    eliminarPregunta,
+    obtenerTodasPreguntas,
+    reemplazarPreguntasDeExamen,
+    vincularCarrerasAExamen,
 } from "@/services/preguntasExamenesServicio";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from "react-native";
-
-// Alert.alert con varios botones no funciona en web (react-native-web solo
-// hace un window.alert de solo-lectura y nunca dispara los onPress), así que
-// ahí usamos window.confirm en su lugar para que el botón de eliminar sí
-// ejecute la acción.
-function confirmarAccion(
-  titulo: string,
-  mensaje: string,
-  onConfirmar: () => void,
-) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    if (window.confirm(`${titulo}\n\n${mensaje}`)) onConfirmar();
-    return;
-  }
-  Alert.alert(titulo, mensaje, [
-    { text: "Cancelar" },
-    { text: "Eliminar", style: "destructive", onPress: onConfirmar },
-  ]);
-}
-
-// Variante de confirmarAccion para ofrecer "Recuperar" o "Descartar" un
-// borrador guardado localmente. Misma limitación de Alert en web.
-function confirmarAccionInfo(
-  titulo: string,
-  mensaje: string,
-  onRecuperar: () => void,
-  onDescartar: () => void,
-) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    if (window.confirm(`${titulo}\n\n${mensaje}`)) onRecuperar();
-    else onDescartar();
-    return;
-  }
-  Alert.alert(titulo, mensaje, [
-    { text: "Descartar", style: "destructive", onPress: onDescartar },
-    { text: "Recuperar", onPress: onRecuperar },
-  ]);
-}
 
 const MESES = [
   "Enero",
@@ -338,14 +300,6 @@ function CampoFecha({
       </Modal>
     </>
   );
-}
-
-function avisar(titulo: string, mensaje?: string) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
-    return;
-  }
-  Alert.alert(titulo, mensaje);
 }
 
 // --- PALETA COMPLEMENTARIA (acentos que no existen aún en ColoresApp) ---
@@ -1111,10 +1065,7 @@ const VistaPreviaTiempoReal = ({
       </View>
 
       <View
-        style={[
-          styles.previewCanvas,
-          esMovil && styles.previewCanvasMovil,
-        ]}
+        style={[styles.previewCanvas, esMovil && styles.previewCanvasMovil]}
       >
         <View style={styles.previewCanvasTop}>
           <View style={{ flexDirection: "row", gap: 5 }}>
@@ -1281,6 +1232,28 @@ const EditorBloqueModal = ({
   bloqueInicial: any | null;
 }) => {
   const { width } = useWindowDimensions();
+
+  // Alert.alert con varios botones no funciona en web (react-native-web solo
+  // hace un window.alert de solo-lectura y nunca dispara los onPress), así que
+  // ahí usamos window.confirm en su lugar para que el botón de eliminar sí
+  // ejecute la acción.
+  const confirmarAccionInfo = (
+    titulo: string,
+    mensaje: string,
+    onRecuperar: () => void,
+    onDescartar: () => void,
+  ) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(`${titulo}\n\n${mensaje}`)) onRecuperar();
+      else onDescartar();
+    } else {
+      Alert.alert(titulo, mensaje, [
+        { text: "Descartar", style: "destructive", onPress: onDescartar },
+        { text: "Recuperar", onPress: onRecuperar },
+      ]);
+    }
+  };
+
   const esEscritorio = width >= BREAKPOINT_ESCRITORIO;
 
   const preguntasIniciales = useMemo<PreguntaEnEdicion[]>(() => {
@@ -1751,7 +1724,9 @@ const EditorBloqueModal = ({
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.modalTitle}>Editor de Reactivos</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
               <Text style={styles.modalSubtitle}>
                 {bloqueInicial ? "Edición de Bloque" : "Nuevo Bloque"}
                 {materia ? ` de ${materia}` : ""}
@@ -1780,9 +1755,7 @@ const EditorBloqueModal = ({
                 hitSlop={6}
                 onPress={() =>
                   Alert.alert(
-                    enLinea
-                      ? "Respaldo local"
-                      : "Sin conexión a internet",
+                    enLinea ? "Respaldo local" : "Sin conexión a internet",
                     estadoGuardado === "error"
                       ? "No se pudo guardar el respaldo local en este dispositivo. Tus cambios siguen en pantalla, pero intenta guardarlos pronto."
                       : `Tu progreso se guarda automáticamente en este dispositivo cada pocos segundos, aunque se corte el internet.${
@@ -1951,6 +1924,21 @@ export default function GestionarPreguntasScreen() {
   const [editorKey, setEditorKey] = useState(0);
   const [paginaActual, setPaginaActual] = useState(0);
   const TAMANO_PAGINA = 8; // exámenes (bloques) por página
+
+  const confirmarAccion = (
+    titulo: string,
+    mensaje: string,
+    onConfirmar: () => void,
+  ) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(`${titulo}\n\n${mensaje}`)) onConfirmar();
+      return;
+    }
+    Alert.alert(titulo, mensaje, [
+      { text: "Cancelar" },
+      { text: "Eliminar", style: "destructive", onPress: onConfirmar },
+    ]);
+  };
 
   const cargarDatos = useCallback(async () => {
     setCargando(true);

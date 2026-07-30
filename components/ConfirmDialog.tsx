@@ -1,6 +1,14 @@
 import { ColoresApp } from "@/constants/coloresApp";
 import React, { createContext, useCallback, useContext, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 /**
  * Alert.alert(title, msg, [{text:"Cancelar"},{text:"Sí", onPress}]) NO
@@ -29,6 +37,23 @@ interface OpcionesConfirm {
   textoCancelar?: string;
   destructivo?: boolean;
   onConfirmar: () => void | Promise<void>;
+}
+
+/**
+ * Alert.alert de React Native casi nunca se ve en navegador web (queda en
+ * silencio). Este helper hace lo mismo que Alert.alert pero, en web,
+ * además loguea a consola y usa window.alert para que el error sea
+ * visible de verdad — así "no pasa nada" deja de ser un misterio.
+ */
+export function avisar(titulo: string, mensaje?: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const esError = /error/i.test(titulo);
+    if (esError) console.error(`[${titulo}]`, mensaje ?? "");
+    else console.log(`[${titulo}]`, mensaje ?? "");
+    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
+  } else {
+    Alert.alert(titulo, mensaje);
+  }
 }
 
 const ConfirmContext = createContext<((opts: OpcionesConfirm) => void) | null>(
@@ -118,7 +143,12 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 400,
   },
-  titulo: { fontSize: 18, fontWeight: "700", color: "#1A1A2E", marginBottom: 8 },
+  titulo: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A2E",
+    marginBottom: 8,
+  },
   mensaje: { fontSize: 14, color: "#555", lineHeight: 20 },
   acciones: {
     flexDirection: "row",

@@ -2,6 +2,7 @@ import { ConfirmProvider } from '@/components/ConfirmDialog';
 import { FondoDinamico } from '@/components/FondoDinamico';
 import { useRolActual } from '@/hooks/useRolActual';
 import { useTemaControlador } from '@/hooks/useTemaControlador';
+import { TemaProvider } from '@/hooks/useTema';
 import { Stack } from 'expo-router';
 import { Platform } from 'react-native';
 
@@ -30,19 +31,21 @@ export default function RootStackLayout() {
 
   return (
     <ConfirmProvider>
-      <FondoDinamico tema={tema}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: 'transparent' },
-            // En web, la animación de transición entre pantallas deja un
-            // residuo visual (un pedacito de la pantalla anterior pegado
-            // arriba) mientras carga la siguiente. Desactivamos la
-            // animación solo en web; en nativo (iOS/Android) se conserva.
-            animation: Platform.OS === 'web' ? 'none' : 'default',
-          }}
-        />
-      </FondoDinamico>
+      <TemaProvider tema={tema}>
+        <FondoDinamico tema={tema}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: 'transparent' },
+              // En web, la animación de transición entre pantallas deja un
+              // residuo visual (un pedacito de la pantalla anterior pegado
+              // arriba) mientras carga la siguiente. Desactivamos la
+              // animación solo en web; en nativo (iOS/Android) se conserva.
+              animation: Platform.OS === 'web' ? 'none' : 'default',
+            }}
+          />
+        </FondoDinamico>
+      </TemaProvider>
     </ConfirmProvider>
   );
 }

@@ -29,32 +29,32 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 
+import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
 import {
   obtenerAspirantePorId,
   registrarAspirante,
 } from "@/services/aspirantesServicio";
 import { contarAvisosNoLeidos } from "@/services/avisosServicio";
-import { guardarTokenPush } from "@/services/pushRegistroServicio";
-import { obtenerTokenPushDispositivo } from "@/utils/pushDispositivo";
-import { mostrarNotificacionWeb } from "@/services/webNotificacionesServicio";
-import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
 import {
   obtenerCronograma,
   type ActividadCronograma,
 } from "@/services/cronogramaServicio";
 import { obtenerPreguntas } from "@/services/preguntasExamenesServicio";
+import { guardarTokenPush } from "@/services/pushRegistroServicio";
 import {
   cerrarTodasLasSesiones,
   guardarSesionAspirante,
   obtenerSesionAspirante,
 } from "@/services/sesionServicio";
 import { supabase } from "@/services/supabaseClient";
+import { mostrarNotificacionWeb } from "@/services/webNotificacionesServicio";
 import { aspiranteFromMap, type Aspirante } from "@/types/aspirante";
 import {
   estadoDeActividad,
   ETIQUETA_ESTADO_ACTIVIDAD,
   iconoPorActividad,
 } from "@/utils/cronogramaVisualUtils";
+import { obtenerTokenPushDispositivo } from "@/utils/pushDispositivo";
 
 const aspiranteVacio: Aspirante = {
   id: 0,
@@ -359,22 +359,33 @@ export default function PantallaPerfilAspirante() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "avisos" },
         (payload) => {
-          const nuevo = payload.new as { titulo: string; contenido: string; carrera_id: number | null; id: number };
-          if (nuevo.carrera_id === null || nuevo.carrera_id === aspirante.carreraId) {
+          const nuevo = payload.new as {
+            titulo: string;
+            contenido: string;
+            carrera_id: number | null;
+            id: number;
+          };
+          if (
+            nuevo.carrera_id === null ||
+            nuevo.carrera_id === aspirante.carreraId
+          ) {
             mostrarNotificacionWeb(nuevo.titulo, {
               cuerpo: nuevo.contenido,
               datos: { avisoId: nuevo.id },
               alHacerClick: () =>
                 router.push({
                   pathname: "/avisos-aspirante",
-                  params: { aspiranteId: String(aspirante.id), carreraId: String(aspirante.carreraId) },
+                  params: {
+                    aspiranteId: String(aspirante.id),
+                    carreraId: String(aspirante.carreraId),
+                  },
                 }),
             });
           }
-        }
+        },
       )
       .subscribe((status) => {
-        console.log('Realtime avisos (perfil-aspirante):', status);
+        console.log("Realtime avisos (perfil-aspirante):", status);
       });
 
     return () => {
@@ -405,7 +416,9 @@ export default function PantallaPerfilAspirante() {
           </Pressable>
         )}
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <BannerPermisoNotificaciones aspiranteId={aspirante.id || undefined} />
+          <BannerPermisoNotificaciones
+            aspiranteId={aspirante.id || undefined}
+          />
           <View
             style={[styles.contentContainer, !showSidebar && { maxWidth: 720 }]}
           >
@@ -587,7 +600,10 @@ const Sidebar = ({
   useEffect(() => {
     let activo = true;
     const cargarContador = async () => {
-      const total = await contarAvisosNoLeidos(aspirante.id, aspirante.carreraId);
+      const total = await contarAvisosNoLeidos(
+        aspirante.id,
+        aspirante.carreraId,
+      );
       if (activo) setAvisosNoLeidos(total);
     };
     cargarContador();
@@ -674,13 +690,15 @@ const Sidebar = ({
                   {item.label}
                 </Text>
               )}
-              {!collapsed && item.key === "notificaciones" && avisosNoLeidos > 0 && (
-                <View style={styles.sidebarBadgePill}>
-                  <Text style={styles.sidebarBadgeTexto}>
-                    {avisosNoLeidos > 9 ? "9+" : avisosNoLeidos}
-                  </Text>
-                </View>
-              )}
+              {!collapsed &&
+                item.key === "notificaciones" &&
+                avisosNoLeidos > 0 && (
+                  <View style={styles.sidebarBadgePill}>
+                    <Text style={styles.sidebarBadgeTexto}>
+                      {avisosNoLeidos > 9 ? "9+" : avisosNoLeidos}
+                    </Text>
+                  </View>
+                )}
             </Pressable>
           );
         })}
@@ -785,20 +803,23 @@ const Sidebar = ({
             {mostrarManual && (
               <View style={styles.manualBox}>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves tu folio,
-                  sede y el resultado de tu examen.
+                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves
+                  tu folio, sede y el resultado de tu examen.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Documentos</Text> están la guía
-                  de estudio y los materiales para prepararte.
+                  • En <Text style={styles.manualNegrita}>Documentos</Text>{" "}
+                  están la guía de estudio y los materiales para prepararte.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Notificaciones</Text> se
-                  avisa cuando cambia tu estado o hay novedades.
+                  • En <Text style={styles.manualNegrita}>Notificaciones</Text>{" "}
+                  se avisa cuando cambia tu estado o hay novedades.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Diagrama de actividades</Text> está
-                  el cronograma completo del proceso de admisión.
+                  • En{" "}
+                  <Text style={styles.manualNegrita}>
+                    Diagrama de actividades
+                  </Text>{" "}
+                  está el cronograma completo del proceso de admisión.
                 </Text>
                 <Text style={styles.manualItem}>
                   • En <Text style={styles.manualNegrita}>Ajustes</Text> activas
@@ -1547,7 +1568,10 @@ const DrawerMovil = ({
   useEffect(() => {
     let activo = true;
     const cargarContador = async () => {
-      const total = await contarAvisosNoLeidos(aspirante.id, aspirante.carreraId);
+      const total = await contarAvisosNoLeidos(
+        aspirante.id,
+        aspirante.carreraId,
+      );
       if (activo) setAvisosNoLeidos(total);
     };
     cargarContador();
@@ -1621,7 +1645,9 @@ const DrawerMovil = ({
                   <Ionicons
                     name={item.icon}
                     size={16}
-                    color={activo ? theme.sidebarTextoActivo : theme.sidebarTexto}
+                    color={
+                      activo ? theme.sidebarTextoActivo : theme.sidebarTexto
+                    }
                   />
                   {item.key === "notificaciones" && avisosNoLeidos > 0 && (
                     <View style={styles.sidebarBadge}>
@@ -1749,20 +1775,23 @@ const DrawerMovil = ({
             {mostrarManual && (
               <View style={styles.manualBox}>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves tu folio,
-                  sede y el resultado de tu examen.
+                  • En <Text style={styles.manualNegrita}>Mi proceso</Text> ves
+                  tu folio, sede y el resultado de tu examen.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Documentos</Text> están la guía
-                  de estudio y los materiales para prepararte.
+                  • En <Text style={styles.manualNegrita}>Documentos</Text>{" "}
+                  están la guía de estudio y los materiales para prepararte.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Notificaciones</Text> se
-                  avisa cuando cambia tu estado o hay novedades.
+                  • En <Text style={styles.manualNegrita}>Notificaciones</Text>{" "}
+                  se avisa cuando cambia tu estado o hay novedades.
                 </Text>
                 <Text style={styles.manualItem}>
-                  • En <Text style={styles.manualNegrita}>Diagrama de actividades</Text> está
-                  el cronograma completo del proceso de admisión.
+                  • En{" "}
+                  <Text style={styles.manualNegrita}>
+                    Diagrama de actividades
+                  </Text>{" "}
+                  está el cronograma completo del proceso de admisión.
                 </Text>
                 <Text style={styles.manualItem}>
                   • En <Text style={styles.manualNegrita}>Ajustes</Text> activas
@@ -2026,10 +2055,6 @@ const styles = StyleSheet.create({
     borderColor: theme.borde,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
 

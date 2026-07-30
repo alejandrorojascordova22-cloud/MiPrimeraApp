@@ -1,4 +1,5 @@
 import CampoFechaHora from "@/components/CampoFechaHora";
+import { avisar } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
     actualizarActividad,
@@ -29,20 +30,6 @@ import {
     TextInput,
     View,
 } from "react-native";
-
-/**
- * Alert.alert de React Native casi nunca se ve en navegador web (queda en
- * silencio, sin error). Este helper hace lo mismo pero en web además
- * loguea a consola y usa window.alert, para que el error sea visible.
- */
-function avisar(titulo: string, mensaje?: string) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    console.error(`[${titulo}]`, mensaje ?? "");
-    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
-  } else {
-    Alert.alert(titulo, mensaje);
-  }
-}
 
 const COLORES_ETIQUETA = [
   "#7C3AED",
@@ -211,6 +198,7 @@ const ActividadModal = ({
   onSave: (actividad: Omit<ActividadCronograma, "id" | "creado_en">) => void;
   actividadInicial?: ActividadCronograma | null;
 }) => {
+
   const [titulo, setTitulo] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [fechaInicio, setFechaInicio] = useState("");

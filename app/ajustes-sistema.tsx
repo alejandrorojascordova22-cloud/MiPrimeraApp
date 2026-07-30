@@ -1,5 +1,6 @@
-import { useConfirm } from "@/components/ConfirmDialog";
 import { CampoTexto } from "@/components/CampoTexto";
+import { avisar, useConfirm } from "@/components/ConfirmDialog";
+import { DeslizadorSimple } from "@/components/DeslizadorSimple";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTemaControlador } from "@/hooks/useTemaControlador";
 import {
@@ -27,7 +28,10 @@ import {
   obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { temaConfigPorDefecto, type TemaConfig } from "@/services/temaConfig";
-import { subirImagenFondoTema } from "@/services/temaConfigServicio";
+import {
+  listarImagenesFondoRecientes,
+  subirImagenFondoTema,
+} from "@/services/temaConfigServicio";
 import {
   esContraseniaFuerte,
   obtenerFeedbackContrasena,
@@ -40,6 +44,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -50,21 +55,6 @@ import {
   Text,
   View,
 } from "react-native";
-
-/**
- * Alert.alert de React Native casi nunca se ve en navegador web (queda en
- * silencio). Este helper hace lo mismo que Alert.alert pero, en web,
- * además loguea a consola y usa window.alert para que el error sea
- * visible de verdad — así "no pasa nada" deja de ser un misterio.
- */
-function avisar(titulo: string, mensaje?: string) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    console.error(`[${titulo}]`, mensaje ?? "");
-    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
-  } else {
-    Alert.alert(titulo, mensaje);
-  }
-}
 
 // --- TIPOS ---
 type Admin = {
@@ -1411,6 +1401,75 @@ const PALETAS_PREDEFINIDAS: { nombre: string; p: string; s: string }[] = [
   { nombre: "Grafito", p: "#334155", s: ColoresApp.textoSecundario },
 ];
 
+// Combos completos (color + fondo + estilo de tarjeta) para armar toda la
+// apariencia de un toque, sin tener que ir campo por campo.
+const TEMAS_RAPIDOS: {
+  nombre: string;
+  cambios: Partial<TemaConfig>;
+}[] = [
+  {
+    nombre: "Azul UT clásico",
+    cambios: {
+      modo: "claro",
+      colorPrimario: "#0055A4",
+      colorSecundario: "#6DFE9C",
+      fondoTipo: "color",
+      fondoColor: "#F2F5FA",
+      estiloTarjeta: "sombra",
+    },
+  },
+  {
+    nombre: "Morado nocturno",
+    cambios: {
+      modo: "oscuro",
+      colorPrimario: "#8B5CF6",
+      colorSecundario: "#A78BFA",
+      fondoTipo: "gradiente",
+      fondoGradienteInicio: "#0B0821",
+      fondoGradienteFin: "#1E1750",
+      fondoGradienteAnimado: false,
+      estiloTarjeta: "sombra",
+    },
+  },
+  {
+    nombre: "Esmeralda glass",
+    cambios: {
+      modo: "claro",
+      colorPrimario: "#047857",
+      colorSecundario: "#34D399",
+      fondoTipo: "gradiente",
+      fondoGradienteInicio: "#ECFDF5",
+      fondoGradienteFin: "#A7F3D0",
+      fondoGradienteAnimado: false,
+      estiloTarjeta: "glass",
+    },
+  },
+  {
+    nombre: "Atardecer cálido",
+    cambios: {
+      modo: "claro",
+      colorPrimario: "#EA580C",
+      colorSecundario: "#FBBF24",
+      fondoTipo: "gradiente",
+      fondoGradienteInicio: "#FFF7ED",
+      fondoGradienteFin: "#FED7AA",
+      fondoGradienteAnimado: false,
+      estiloTarjeta: "sombra",
+    },
+  },
+  {
+    nombre: "Grafito minimal",
+    cambios: {
+      modo: "claro",
+      colorPrimario: "#334155",
+      colorSecundario: "#94A3B8",
+      fondoTipo: "color",
+      fondoColor: "#F1F5F9",
+      estiloTarjeta: "plano",
+    },
+  },
+];
+
 const ROLES_TEMA: { valor: TemaConfig["rol"]; etiqueta: string }[] = [
   { valor: "admin", etiqueta: "Admin" },
   { valor: "aspirante", etiqueta: "Aspirante" },
@@ -1442,6 +1501,26 @@ function AparienciaModal({
     setBorrador((b) => ({ ...b, ...cambios }));
 
   const [subiendoImagen, setSubiendoImagen] = useState(false);
+  const [imagenesRecientes, setImagenesRecientes] = useState<string[]>([]);
+  const [cargandoRecientes, setCargandoRecientes] = useState(false);
+
+  useEffect(() => {
+    if (!visible || borrador.fondoTipo !== "imagen") return;
+    let activo = true;
+
+    (async () => {
+      setCargandoRecientes(true);
+      const urls = await listarImagenesFondoRecientes(rolActivo);
+      if (activo) {
+        setImagenesRecientes(urls);
+        setCargandoRecientes(false);
+      }
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, [visible, borrador.fondoTipo, rolActivo]);
 
   const guardarCambios = async () => {
     setGuardando(true);
@@ -1487,6 +1566,7 @@ function AparienciaModal({
       );
       if (url) {
         cambiar({ fondoImagenUrl: url });
+        setImagenesRecientes((prev) => [url, ...prev]);
       } else {
         avisar("Error", "No se pudo subir la imagen. Intenta de nuevo.");
       }
@@ -1506,7 +1586,7 @@ function AparienciaModal({
       onRequestClose={cerrarYResetear}
     >
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalContainer, { maxHeight: "90%" }]}>
+        <View style={[styles.modalContainer, styles.aparienciaModalContainer]}>
           <Text style={styles.modalTitle}>Apariencia del Sistema</Text>
 
           <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
@@ -1539,6 +1619,62 @@ function AparienciaModal({
           </View>
 
           <ScrollView>
+            <Text style={styles.segmentedLabel}>TEMAS RÁPIDOS</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginBottom: 12 }}
+            >
+              {TEMAS_RAPIDOS.map((rapido) => (
+                <Pressable
+                  key={rapido.nombre}
+                  onPress={() => cambiar(rapido.cambios)}
+                  style={{
+                    marginRight: 10,
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    borderWidth: 1,
+                    borderColor: ColoresApp.borde,
+                    width: 92,
+                  }}
+                >
+                  <View
+                    style={{
+                      height: 46,
+                      backgroundColor:
+                        rapido.cambios.fondoTipo === "gradiente"
+                          ? rapido.cambios.fondoGradienteFin
+                          : rapido.cambios.fondoColor,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 6,
+                        backgroundColor: rapido.cambios.colorPrimario,
+                      }}
+                    />
+                  </View>
+                  <Text
+                    numberOfLines={2}
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: "600",
+                      textAlign: "center",
+                      color: ColoresApp.texto,
+                      paddingHorizontal: 4,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    {rapido.nombre}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
             <View
               style={[
                 styles.previewBox,
@@ -1623,6 +1759,14 @@ function AparienciaModal({
               placeholder="#0055A4"
               autoCapitalize="none"
             />
+            <CampoTexto
+              etiqueta="Color de texto (hex)"
+              valor={borrador.colorTexto}
+              onChangeText={(v) => cambiar({ colorTexto: v })}
+              icono="text-outline"
+              placeholder="#1F2A44"
+              autoCapitalize="none"
+            />
 
             <Text style={styles.segmentedLabel}>FONDO</Text>
             <SegmentedRow
@@ -1630,12 +1774,19 @@ function AparienciaModal({
                 { value: "color", label: "Color" },
                 { value: "gradiente", label: "Degradado" },
                 { value: "imagen", label: "Imagen" },
+                { value: "transparente", label: "Transparente" },
               ]}
               valor={borrador.fondoTipo}
               onCambiar={(v) =>
                 cambiar({ fondoTipo: v as TemaConfig["fondoTipo"] })
               }
             />
+            {borrador.fondoTipo === "transparente" && (
+              <Text style={styles.modalSubtitle}>
+                Sin color de fondo: se ve el fondo nativo del dispositivo/
+                navegador detrás de cada pantalla.
+              </Text>
+            )}
             {borrador.fondoTipo === "color" && (
               <CampoTexto
                 etiqueta="Color de fondo (hex)"
@@ -1743,18 +1894,58 @@ function AparienciaModal({
                   icono="link-outline"
                   autoCapitalize="none"
                 />
-                <CampoTexto
-                  etiqueta="Oscurecer imagen (0.0 a 1.0)"
-                  valor={String(borrador.fondoOpacidadOverlay)}
-                  onChangeText={(v) => {
-                    const n = parseFloat(v);
-                    if (!isNaN(n))
-                      cambiar({
-                        fondoOpacidadOverlay: Math.min(1, Math.max(0, n)),
-                      });
-                  }}
-                  keyboardType="decimal-pad"
-                  icono="contrast-outline"
+                {(cargandoRecientes || imagenesRecientes.length > 0) && (
+                  <>
+                    <Text style={styles.segmentedLabel}>
+                      RECIENTES (TOCA PARA REUSAR)
+                    </Text>
+                    {cargandoRecientes ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={ColoresApp.primario}
+                      />
+                    ) : (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={{ marginBottom: 8 }}
+                      >
+                        {imagenesRecientes.map((url) => {
+                          const activa = borrador.fondoImagenUrl === url;
+                          return (
+                            <Pressable
+                              key={url}
+                              onPress={() => cambiar({ fondoImagenUrl: url })}
+                              style={{
+                                marginRight: 8,
+                                borderRadius: 10,
+                                overflow: "hidden",
+                                borderWidth: activa ? 3 : 1,
+                                borderColor: activa
+                                  ? ColoresApp.primario
+                                  : ColoresApp.borde,
+                              }}
+                            >
+                              <Image
+                                source={{ uri: url }}
+                                style={{ width: 64, height: 64 }}
+                                resizeMode="cover"
+                              />
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </>
+                )}
+                <Text style={styles.segmentedLabel}>
+                  OSCURECER IMAGEN ({Math.round(borrador.fondoOpacidadOverlay * 100)}%)
+                </Text>
+                <DeslizadorSimple
+                  valor={borrador.fondoOpacidadOverlay}
+                  onCambiar={(v) => cambiar({ fondoOpacidadOverlay: v })}
+                  color={ColoresApp.primario}
+                  colorPista={ColoresApp.borde}
                 />
               </>
             )}
@@ -1951,6 +2142,11 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 460,
     gap: 4,
+  },
+  aparienciaModalContainer: {
+    maxWidth: 640,
+    maxHeight: "94%",
+    width: "100%",
   },
   modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 4 },
   modalSubtitle: {

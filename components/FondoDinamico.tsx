@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, ImageBackground, StyleSheet, ViewStyle, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { TemaConfig } from '../services/temaConfig';
@@ -26,7 +26,7 @@ interface FondoDinamicoProps {
 const GradienteAnimado = Animated.createAnimatedComponent(LinearGradient);
 
 export function FondoDinamico({ tema, children, style }: FondoDinamicoProps) {
-  const progreso = useRef(new Animated.Value(0)).current;
+  const [progreso] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (tema.fondoTipo !== 'gradiente' || !tema.fondoGradienteAnimado) return;
@@ -110,6 +110,10 @@ export function FondoDinamico({ tema, children, style }: FondoDinamicoProps) {
         </View>
       </ImageBackground>
     );
+  }
+
+  if (tema.fondoTipo === 'transparente') {
+    return <View style={[styles.flex, style]}>{children}</View>;
   }
 
   // 'color' o fallback

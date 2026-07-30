@@ -57,6 +57,40 @@ export async function subirImagenFondoTema(
   }
 }
 
+/**
+ * Lista las imágenes de fondo ya subidas para un rol (más recientes
+ * primero), leyendo directo el bucket de Storage. Sirve para mostrar un
+ * carrete de "recientes" en Ajustes del Sistema y así no tener que volver
+ * a elegir/subir el mismo archivo cada vez.
+ */
+export async function listarImagenesFondoRecientes(
+  rol: RolTema,
+  limite = 12
+): Promise<string[]> {
+  try {
+    const { data, error } = await supabase.storage
+      .from(BUCKET_FONDOS)
+      .list('fondos_tema', {
+        limit: 100,
+        sortBy: { column: 'created_at', order: 'desc' },
+      });
+    if (error || !data) return [];
+
+    return data
+      .filter((archivo) => archivo.name.startsWith(`${rol}_`))
+      .slice(0, limite)
+      .map(
+        (archivo) =>
+          supabase.storage
+            .from(BUCKET_FONDOS)
+            .getPublicUrl(`fondos_tema/${archivo.name}`).data.publicUrl
+      );
+  } catch (e) {
+    console.warn('Error en listarImagenesFondoRecientes:', e);
+    return [];
+  }
+}
+
 export async function guardarTema(
   tema: TemaConfig
 ): Promise<{ exito: boolean; error?: string }> {

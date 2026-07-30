@@ -1,4 +1,5 @@
 import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
+import { avisar } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
   obtenerAspirantes,
@@ -31,35 +32,42 @@ import {
   View,
 } from "react-native";
 
-function avisar(titulo: string, mensaje?: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    window.alert(mensaje ? `${titulo}: ${mensaje}` : titulo);
-  } else {
-    Alert.alert(titulo, mensaje);
-  }
-}
-
 type Carrera = { id: number; nombre: string };
 
 const formatDate = (iso?: string) => {
-  if (!iso) return '—';
+  if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString('es-MX', {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    return new Date(iso).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
-    return '—';
+    return "—";
   }
 };
 
-const AvisoRow = ({ aviso, onDesactivar }: { aviso: Aviso & { carreras?: { nombre?: string } }; onDesactivar: () => void }) => (
+const AvisoRow = ({
+  aviso,
+  onDesactivar,
+}: {
+  aviso: Aviso & { carreras?: { nombre?: string } };
+  onDesactivar: () => void;
+}) => (
   <View style={[styles.card, !aviso.activo && styles.cardInactivo]}>
     <View style={{ flex: 1 }}>
       <Text style={styles.cardTitulo}>{aviso.titulo}</Text>
-      <Text style={styles.cardContenido} numberOfLines={2}>{aviso.contenido}</Text>
+      <Text style={styles.cardContenido} numberOfLines={2}>
+        {aviso.contenido}
+      </Text>
       <Text style={styles.cardMeta}>
-        {aviso.carrera_id ? aviso.carreras?.nombre ?? 'Carrera específica' : 'Todas las carreras'} · {formatDate(aviso.creado_en)}
-        {!aviso.activo ? ' · inactivo' : ''}
+        {aviso.carrera_id
+          ? (aviso.carreras?.nombre ?? "Carrera específica")
+          : "Todas las carreras"}{" "}
+        · {formatDate(aviso.creado_en)}
+        {!aviso.activo ? " · inactivo" : ""}
       </Text>
     </View>
     {aviso.activo && (
@@ -81,16 +89,16 @@ const PublicarAvisoModal = ({
   onGuardado: () => void;
   carreras: Carrera[];
 }) => {
-  const [titulo, setTitulo] = useState('');
-  const [contenido, setContenido] = useState('');
+  const [titulo, setTitulo] = useState("");
+  const [contenido, setContenido] = useState("");
   const [carreraId, setCarreraId] = useState<number | null>(null);
   const [publicando, setPublicando] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => {
       if (visible) {
-        setTitulo('');
-        setContenido('');
+        setTitulo("");
+        setContenido("");
         setCarreraId(null);
       }
     }, 0);
@@ -99,7 +107,7 @@ const PublicarAvisoModal = ({
 
   const handlePublicar = async () => {
     if (!titulo.trim() || !contenido.trim()) {
-      avisar('Falta información', 'Escribe título y contenido del aviso.');
+      avisar("Falta información", "Escribe título y contenido del aviso.");
       return;
     }
     setPublicando(true);
@@ -112,7 +120,7 @@ const PublicarAvisoModal = ({
 
       if (!ok) {
         // Solo esto es un fallo real (Supabase tiró un error en el insert).
-        avisar('Error', 'No se pudo publicar el aviso.');
+        avisar("Error", "No se pudo publicar el aviso.");
         return;
       }
 
@@ -133,31 +141,33 @@ const PublicarAvisoModal = ({
           const destinatarios = carreraId
             ? await obtenerAspirantesPorCarrera(carreraId)
             : await obtenerAspirantes();
-          const aspiranteIds = destinatarios.map((a: any) => a.id).filter(Boolean);
+          const aspiranteIds = destinatarios
+            .map((a: any) => a.id)
+            .filter(Boolean);
           if (aspiranteIds.length > 0) {
             // Push nativo (Expo) para celulares con build compilado.
             await enviarPushNotificacion({
               aspiranteIds,
               titulo: titulo.trim(),
               cuerpo: contenido.trim(),
-              datos: { tipo: 'aviso', avisoId: aviso?.id },
+              datos: { tipo: "aviso", avisoId: aviso?.id },
             });
             // Web Push real para navegador, llega aunque esté cerrado.
             try {
-              await supabase.functions.invoke('enviar-push-web', {
+              await supabase.functions.invoke("enviar-push-web", {
                 body: {
                   aspiranteIds,
                   titulo: titulo.trim(),
                   cuerpo: contenido.trim(),
-                  datos: { tipo: 'aviso', avisoId: aviso?.id },
+                  datos: { tipo: "aviso", avisoId: aviso?.id },
                 },
               });
             } catch (e) {
-              console.warn('Error al enviar web push del aviso:', e);
+              console.warn("Error al enviar web push del aviso:", e);
             }
           }
         } catch (e) {
-          console.warn('Error al enviar push del aviso:', e);
+          console.warn("Error al enviar push del aviso:", e);
         }
       })();
     } finally {
@@ -166,25 +176,41 @@ const PublicarAvisoModal = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
       <View style={styles.modalBackdrop}>
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitulo}>Publicar aviso</Text>
-          <TextInput style={styles.input} placeholder="Título" value={titulo} onChangeText={setTitulo} />
           <TextInput
-            style={[styles.input, { minHeight: 90, textAlignVertical: 'top' }]}
+            style={styles.input}
+            placeholder="Título"
+            value={titulo}
+            onChangeText={setTitulo}
+          />
+          <TextInput
+            style={[styles.input, { minHeight: 90, textAlignVertical: "top" }]}
             placeholder="Contenido del aviso"
             value={contenido}
             onChangeText={setContenido}
             multiline
           />
           <Text style={styles.fieldLabel}>Dirigido a:</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable
               style={[styles.chip, carreraId === null && styles.chipActivo]}
               onPress={() => setCarreraId(null)}
             >
-              <Text style={carreraId === null ? styles.chipTextoActivo : styles.chipTexto}>Todas las carreras</Text>
+              <Text
+                style={
+                  carreraId === null ? styles.chipTextoActivo : styles.chipTexto
+                }
+              >
+                Todas las carreras
+              </Text>
             </Pressable>
             {carreras.map((c) => (
               <Pressable
@@ -192,16 +218,37 @@ const PublicarAvisoModal = ({
                 style={[styles.chip, carreraId === c.id && styles.chipActivo]}
                 onPress={() => setCarreraId(c.id)}
               >
-                <Text style={carreraId === c.id ? styles.chipTextoActivo : styles.chipTexto}>{c.nombre}</Text>
+                <Text
+                  style={
+                    carreraId === c.id
+                      ? styles.chipTextoActivo
+                      : styles.chipTexto
+                  }
+                >
+                  {c.nombre}
+                </Text>
               </Pressable>
             ))}
           </View>
           <View style={styles.modalActions}>
-            <Pressable style={[styles.modalButton, styles.modalButtonCancel]} onPress={onClose}>
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonCancel]}
+              onPress={onClose}
+            >
               <Text>Cancelar</Text>
             </Pressable>
-            <Pressable style={[styles.modalButton, styles.modalButtonSubmit]} onPress={handlePublicar} disabled={publicando}>
-              {publicando ? <ActivityIndicator color="white" size="small" /> : <Text style={{ color: 'white', fontWeight: 'bold' }}>Publicar</Text>}
+            <Pressable
+              style={[styles.modalButton, styles.modalButtonSubmit]}
+              onPress={handlePublicar}
+              disabled={publicando}
+            >
+              {publicando ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={{ color: "white", fontWeight: "bold" }}>
+                  Publicar
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -242,14 +289,14 @@ export default function GestionarAvisosScreen() {
   // la lista solo, sin que tengas que recargar la página a mano.
   useEffect(() => {
     const canal = supabase
-      .channel('gestionar-avisos')
+      .channel("gestionar-avisos")
       .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'avisos' },
-        () => cargar()
+        "postgres_changes",
+        { event: "*", schema: "public", table: "avisos" },
+        () => cargar(),
       )
       .subscribe((status) => {
-        console.log('Realtime avisos (gestionar-avisos):', status);
+        console.log("Realtime avisos (gestionar-avisos):", status);
       });
 
     return () => {
@@ -261,15 +308,15 @@ export default function GestionarAvisosScreen() {
     const ejecutar = async () => {
       const ok = await desactivarAviso(aviso.id);
       if (ok) cargar();
-      else avisar('Error', 'No se pudo desactivar el aviso.');
+      else avisar("Error", "No se pudo desactivar el aviso.");
     };
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       if (window.confirm(`¿Desactivar el aviso "${aviso.titulo}"?`)) ejecutar();
       return;
     }
-    Alert.alert('¿Desactivar aviso?', aviso.titulo, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Desactivar', style: 'destructive', onPress: ejecutar },
+    Alert.alert("¿Desactivar aviso?", aviso.titulo, [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Desactivar", style: "destructive", onPress: ejecutar },
     ]);
   };
 
@@ -283,7 +330,11 @@ export default function GestionarAvisosScreen() {
       <BannerPermisoNotificaciones />
 
       {cargando && avisos.length === 0 ? (
-        <ActivityIndicator style={{ marginTop: 60 }} size="large" color={ColoresApp.primario} />
+        <ActivityIndicator
+          style={{ marginTop: 60 }}
+          size="large"
+          color={ColoresApp.primario}
+        />
       ) : avisos.length === 0 ? (
         <Text style={styles.emptyText}>Aún no hay avisos publicados.</Text>
       ) : (
@@ -292,9 +343,14 @@ export default function GestionarAvisosScreen() {
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContainer}
           renderItem={({ item }) => (
-            <AvisoRow aviso={item as any} onDesactivar={() => handleDesactivar(item)} />
+            <AvisoRow
+              aviso={item as any}
+              onDesactivar={() => handleDesactivar(item)}
+            />
           )}
-          refreshControl={<RefreshControl refreshing={cargando} onRefresh={cargar} />}
+          refreshControl={
+            <RefreshControl refreshing={cargando} onRefresh={cargar} />
+          }
         />
       )}
 
@@ -318,58 +374,62 @@ const styles = StyleSheet.create({
   topBar: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
-  topBarTitulo: { fontSize: 15, fontWeight: '600', color: ColoresApp.oscuro },
-  emptyText: { marginTop: 100, textAlign: 'center', color: ColoresApp.textoSecundario },
+  topBarTitulo: { fontSize: 15, fontWeight: "600", color: ColoresApp.oscuro },
+  emptyText: {
+    marginTop: 100,
+    textAlign: "center",
+    color: ColoresApp.textoSecundario,
+  },
   listContainer: { padding: 16, paddingBottom: 100 },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
     padding: 14,
     marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 10,
   },
   cardInactivo: { opacity: 0.5 },
-  cardTitulo: { fontSize: 14, fontWeight: '700', color: ColoresApp.oscuro },
+  cardTitulo: { fontSize: 14, fontWeight: "700", color: ColoresApp.oscuro },
   cardContenido: { fontSize: 13, color: ColoresApp.texto, marginTop: 4 },
   cardMeta: { fontSize: 11, color: ColoresApp.textoSecundario, marginTop: 6 },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 30,
     right: 20,
     backgroundColor: ColoresApp.primario,
     borderRadius: 99,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    boxShadow: '0 4px 6px #0000004D',
+    boxShadow: "0 4px 6px #0000004D",
   },
-  fabText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  fabText: { color: "white", fontWeight: "bold", fontSize: 16 },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   modalContainer: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
-    width: '100%',
+    width: "100%",
     maxWidth: 420,
     gap: 12,
   },
-  modalTitulo: { fontSize: 16, fontWeight: '700', color: ColoresApp.oscuro },
+  modalTitulo: { fontSize: 16, fontWeight: "700", color: ColoresApp.oscuro },
   input: {
     borderWidth: 1,
     borderColor: ColoresApp.borde,
@@ -378,19 +438,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: ColoresApp.texto,
   },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: ColoresApp.textoSecundario },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: ColoresApp.textoSecundario,
+  },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 99,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
-    backgroundColor: 'white',
+    backgroundColor: "white",
   },
-  chipActivo: { backgroundColor: ColoresApp.primarioFondo, borderColor: ColoresApp.primario },
+  chipActivo: {
+    backgroundColor: ColoresApp.primarioFondo,
+    borderColor: ColoresApp.primario,
+  },
   chipTexto: { fontSize: 12, color: ColoresApp.textoSecundario },
-  chipTextoActivo: { fontSize: 12, color: ColoresApp.primario, fontWeight: '600' },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 10 },
+  chipTextoActivo: {
+    fontSize: 12,
+    color: ColoresApp.primario,
+    fontWeight: "600",
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 8,
+    gap: 10,
+  },
   modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
   modalButtonCancel: { backgroundColor: ColoresApp.fondo },
   modalButtonSubmit: { backgroundColor: ColoresApp.primario },

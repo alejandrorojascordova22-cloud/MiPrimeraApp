@@ -6,7 +6,7 @@
 
 export type RolTema = 'admin' | 'aspirante';
 export type ModoTema = 'claro' | 'oscuro' | 'auto';
-export type FondoTipo = 'color' | 'gradiente' | 'imagen';
+export type FondoTipo = 'color' | 'gradiente' | 'imagen' | 'transparente';
 export type EstiloTarjeta = 'plano' | 'sombra' | 'glass';
 
 export interface TemaConfig {
@@ -14,6 +14,7 @@ export interface TemaConfig {
   modo: ModoTema;
   colorPrimario: string; // hex '#RRGGBB'
   colorSecundario: string;
+  colorTexto: string;
   fondoTipo: FondoTipo;
   fondoColor: string;
   fondoGradienteInicio: string;
@@ -28,11 +29,34 @@ export interface TemaConfig {
 
 /** Valores por defecto = look actual de la app (fallback si Supabase falla). */
 export function temaConfigPorDefecto(rol: RolTema = 'admin'): TemaConfig {
+  if (rol === 'admin') {
+    // Coincide con el look oscuro que panel.tsx dibujaba antes "a mano"
+    // (constante TEMA local). Así, mientras nadie personalice nada en
+    // Ajustes del Sistema, el panel se ve exactamente igual que hoy.
+    return {
+      rol,
+      modo: 'oscuro',
+      colorPrimario: '#8B5CF6',
+      colorSecundario: '#A78BFA',
+      colorTexto: '#FFFFFF',
+      fondoTipo: 'gradiente',
+      fondoColor: '#0E0B26',
+      fondoGradienteInicio: '#0B0821',
+      fondoGradienteFin: '#1E1750',
+      fondoGradienteAnimado: false,
+      fondoGradienteDuracionMs: 6000,
+      fondoImagenUrl: null,
+      fondoOpacidadOverlay: 0.55,
+      radioBordes: 16,
+      estiloTarjeta: 'sombra',
+    };
+  }
   return {
     rol,
     modo: 'claro',
     colorPrimario: '#0055A4',
     colorSecundario: '#6DFE9C',
+    colorTexto: '#1F2A44',
     fondoTipo: 'color',
     fondoColor: '#F2F5FA',
     fondoGradienteInicio: '#040D2A',
@@ -62,6 +86,7 @@ export function temaConfigFromMap(m: Record<string, any>): TemaConfig {
     modo: (m.modo as ModoTema) ?? d.modo,
     colorPrimario: hex(m.color_primario, d.colorPrimario),
     colorSecundario: hex(m.color_secundario, d.colorSecundario),
+    colorTexto: hex(m.color_texto, d.colorTexto),
     fondoTipo: (m.fondo_tipo as FondoTipo) ?? d.fondoTipo,
     fondoColor: hex(m.fondo_color, d.fondoColor),
     fondoGradienteInicio: hex(m.fondo_gradiente_inicio, d.fondoGradienteInicio),
@@ -85,6 +110,7 @@ export function temaConfigToMap(tema: TemaConfig): Record<string, any> {
     modo: tema.modo,
     color_primario: tema.colorPrimario,
     color_secundario: tema.colorSecundario,
+    color_texto: tema.colorTexto,
     fondo_tipo: tema.fondoTipo,
     fondo_color: tema.fondoColor,
     fondo_gradiente_inicio: tema.fondoGradienteInicio,

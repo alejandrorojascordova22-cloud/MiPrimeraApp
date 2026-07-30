@@ -1,5 +1,7 @@
 import { CampoTexto } from "@/components/CampoTexto";
+import { FondoDinamico } from "@/components/FondoDinamico";
 import { ColoresApp } from "@/constants/coloresApp";
+import { useTema } from "@/hooks/useTema";
 import {
   actualizarPerfilAdmin,
   obtenerAdministradorPorId,
@@ -67,7 +69,11 @@ import {
 
 // Paleta oscura inspirada en el diseño de referencia (Admissions Pro):
 // fondo azul-morado profundo, tarjetas translúcidas y acentos en morado.
-const TEMA = {
+// NOTA: primario/primarioClaro/primarioSuave se sobreescriben en tiempo de
+// render con el color configurado en Ajustes del Sistema > Apariencia
+// (ver `useTemaDinamico()` más abajo). Estos valores solo quedan como
+// fallback antes de que cargue el tema real.
+const TEMA_BASE = {
   fondo: "#0E0B26",
   fondoDegradadoInicio: "#0B0821",
   fondoDegradadoFin: "#1E1750",
@@ -83,6 +89,13 @@ const TEMA = {
   advertencia: "#FBBF24",
   peligro: "#F87171",
 };
+
+// Mutable a propósito: los componentes fuera de PanelScreen (OpcionExportar,
+// ModalExportarOpciones, etc.) leen `TEMA.primario` directamente y no pueden
+// recibir props de tema sin reescribir toda la pantalla. PanelScreen
+// actualiza estos 3 campos en cada render con el color real guardado en
+// Supabase, así que todos los subcomponentes quedan sincronizados.
+const TEMA = { ...TEMA_BASE };
 
 const OpcionExportar = ({
   icono,
@@ -873,6 +886,20 @@ const ModalNotificaciones = ({
 
 export default function PanelScreen() {
   const router = useRouter();
+  const temaGlobal = useTema();
+  // Sincroniza el color primario/acento con lo configurado en Ajustes del
+  // Sistema > Apariencia para el rol "admin". Se hace por mutación directa
+  // (en vez de prop-drilling) porque varios subcomponentes de este archivo
+  // (OpcionExportar, ModalExportarOpciones, etc.) están definidos fuera de
+  // PanelScreen y leen `TEMA.primario` como constante de módulo.
+  /* eslint-disable react-hooks/immutability -- mutación intencional:
+     subcomponentes definidos fuera de PanelScreen (OpcionExportar, etc.)
+     leen TEMA como constante de módulo y no reciben props de tema. */
+  TEMA.primario = temaGlobal.colorPrimario;
+  TEMA.primarioClaro = temaGlobal.colorSecundario;
+  TEMA.primarioSuave = `${temaGlobal.colorPrimario}2E`;
+  TEMA.texto = temaGlobal.colorTexto;
+  /* eslint-enable react-hooks/immutability */
   const [cargando, setCargando] = useState(true);
   const [pestana, setPestana] = useState<Pestana>("inicio");
   const [resultados, setResultados] = useState<ResultadoAspirante[]>([]);
@@ -941,8 +968,8 @@ export default function PanelScreen() {
           setNotifNoLeidas((n) => n + 1);
           cargarAsistenciasRecientes();
         },
-      )
-      .subscribe();
+      );
+    canal.subscribe();
 
     return () => {
       supabase.removeChannel(canal);
@@ -1392,10 +1419,7 @@ export default function PanelScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={[TEMA.fondoDegradadoInicio, TEMA.fondo, TEMA.fondoDegradadoFin]}
-      style={{ flex: 1 }}
-    >
+    <FondoDinamico tema={temaGlobal} style={{ flex: 1 }}>
       <HeaderAdmin
         nombre={adminActual?.nombre ?? "Admin"}
         rol={adminActual?.rol ?? "maestro"}
@@ -1447,7 +1471,7 @@ export default function PanelScreen() {
             >
               <View style={styles.heroBloque}>
                 <Text style={styles.heroSaludo} numberOfLines={2}>
-                  ¡Bienvenido de nuevo, {adminActual?.nombre ?? "Admin"}!
+                  Resumen de hoy
                 </Text>
                 <Text style={styles.heroFecha}>{fechaHoraSaludo}</Text>
                 <Pressable
@@ -2103,7 +2127,7 @@ export default function PanelScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </LinearGradient>
+    </FondoDinamico>
   );
 }
 
