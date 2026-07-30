@@ -8,12 +8,14 @@ import { supabase } from './supabaseClient';
 
 interface ConstruirHtmlConfirmacionRegistroParams {
   nombre: string;
+  correo: string;
   folio: string;
   carrera: string;
 }
 
 function construirHtmlConfirmacionRegistro({
   nombre,
+  correo,
   folio,
   carrera,
 }: ConstruirHtmlConfirmacionRegistroParams): string {
@@ -39,6 +41,10 @@ function construirHtmlConfirmacionRegistro({
               <div style="background-color: white; padding: 15px; border-radius: 4px; margin: 0 0 10px 0;">
                 <p style="color: #6b7280; font-size: 12px; margin: 0 0 3px 0; text-transform: uppercase;">CARRERA</p>
                 <p style="color: #1f2937; font-size: 16px; font-weight: bold; margin: 0;">${carrera}</p>
+              </div>
+              <div style="background-color: white; padding: 15px; border-radius: 4px; margin: 0 0 10px 0;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0 0 3px 0; text-transform: uppercase;">CORREO REGISTRADO</p>
+                <p style="color: #1f2937; font-size: 16px; font-weight: bold; margin: 0;">${correo}</p>
               </div>
               <p style="color: #4b5563; font-size: 13px; margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #dcfce7;">
                 Guarda estos datos. Los necesitarás para acceder al examen.
@@ -172,7 +178,7 @@ export async function enviarCorreoConfirmacionRegistro({
         nombre,
         correo,
         asunto: '✅ Registro Confirmado - Examen de Admisión 2026',
-        mensaje_html: construirHtmlConfirmacionRegistro({ nombre, folio, carrera }),
+        mensaje_html: construirHtmlConfirmacionRegistro({ nombre, correo, folio, carrera }),
       },
     });
 

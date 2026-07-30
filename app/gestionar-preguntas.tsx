@@ -1,4 +1,5 @@
 import { ColoresApp } from "@/constants/coloresApp";
+import { avisar } from "@/components/ConfirmDialog";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
     actualizarExamen,
@@ -13,7 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -1912,6 +1913,7 @@ const EditorBloqueModal = ({
 // --- PANTALLA PRINCIPAL ---
 
 export default function GestionarPreguntasScreen() {
+  const router = useRouter();
   const [cargando, setCargando] = useState(true);
   const [preguntas, setPreguntas] = useState<Pregunta[]>([]);
   const [carreras, setCarreras] = useState<CarreraRef[]>([]);
@@ -2116,17 +2118,26 @@ export default function GestionarPreguntasScreen() {
               Gestión de preguntas de opción múltiple
             </Text>
           </View>
-          <Pressable
-            style={styles.nuevoButton}
-            onPress={() => {
-              setBloqueEnEdicion(null);
-              setEditorKey((k) => k + 1);
-              setEditorVisible(true);
-            }}
-          >
-            <Ionicons name="add" size={20} color={ACCENT.primario} />
-            <Text style={styles.nuevoButtonText}>Nuevo Bloque</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pressable
+              style={styles.nuevoButton}
+              onPress={() => router.push("/carga-masiva-preguntas")}
+            >
+              <Ionicons name="cloud-upload-outline" size={20} color={ACCENT.primario} />
+              <Text style={styles.nuevoButtonText}>Carga masiva</Text>
+            </Pressable>
+            <Pressable
+              style={styles.nuevoButton}
+              onPress={() => {
+                setBloqueEnEdicion(null);
+                setEditorKey((k) => k + 1);
+                setEditorVisible(true);
+              }}
+            >
+              <Ionicons name="add" size={20} color={ACCENT.primario} />
+              <Text style={styles.nuevoButtonText}>Nuevo Bloque</Text>
+            </Pressable>
+          </View>
         </View>
         <View style={styles.statsContainer}>
           <StatChip

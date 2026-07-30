@@ -16,7 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
+import { useResponsivo } from "@/utils/responsive";import {
     ActivityIndicator,
     Alert,
     FlatList,
@@ -368,6 +368,7 @@ const ActividadModal = ({
 };
 
 export default function GestionarCronogramaScreen() {
+  const { esMovil } = useResponsivo();
   const [actividades, setActividades] = useState<ActividadCronograma[]>([]);
   const [cargando, setCargando] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -518,14 +519,14 @@ export default function GestionarCronogramaScreen() {
       {renderContent()}
       {actividades.length > 0 && (
         <Pressable
-          style={styles.fab}
+          style={[styles.fab, esMovil && styles.fabMovil]}
           onPress={() => {
             setActividadEditando(null);
             setModalVisible(true);
           }}
         >
           <Ionicons name="add" size={24} color="white" />
-          <Text style={styles.fabText}>Nueva Actividad</Text>
+          {!esMovil && <Text style={styles.fabText}>Nueva Actividad</Text>}
         </Pressable>
       )}
 
@@ -645,6 +646,7 @@ const styles = StyleSheet.create({
     boxShadow: "0 4px 6px #0000004D",
   },
   fabText: { color: "white", fontWeight: "bold", fontSize: 16 },
+  fabMovil: { paddingVertical: 14, paddingHorizontal: 14, bottom: 20, right: 16 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

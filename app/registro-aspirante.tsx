@@ -99,12 +99,24 @@ export default function PantallaRegistroAspirante() {
           const carreraNombre =
             carreras.find((c) => c.id === carreraSeleccionadaId)?.nombre ?? "";
           try {
-            await enviarCorreoConfirmacionRegistro({
+            const correoEnviado = await enviarCorreoConfirmacionRegistro({
               nombre,
               correo,
               folio: resultado.folio,
               carrera: carreraNombre,
             });
+            if (!correoEnviado) {
+              // enviarCorreoConfirmacionRegistro nunca lanza excepción: si
+              // falla (Edge Function apagada, "Registro automático"
+              // desactivado en Ajustes, límite diario alcanzado, error de
+              // SMTP, etc.) simplemente devuelve false. Sin este chequeo
+              // el registro se veía "exitoso" y nadie se enteraba de que
+              // el correo no salió.
+              avisar(
+                "Aviso de correo",
+                "El aspirante se registró, pero el correo de bienvenida no se envió. Revisa en Ajustes > Correos que el envío automático de registro esté activado y que no se haya alcanzado el límite diario.",
+              );
+            }
           } catch (e) {
             // Log completo para depuración: el objeto 'e' de FunctionsHttpError
             // puede traer más detalles del fallo en la Edge Function.

@@ -2,6 +2,7 @@ import { CampoTexto } from "@/components/CampoTexto";
 import { FondoDinamico } from "@/components/FondoDinamico";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTema } from "@/hooks/useTema";
+import { useResponsivo } from "@/utils/responsive";
 import {
   actualizarPerfilAdmin,
   obtenerAdministradorPorId,
@@ -887,6 +888,7 @@ const ModalNotificaciones = ({
 export default function PanelScreen() {
   const router = useRouter();
   const temaGlobal = useTema();
+  const { esMovil } = useResponsivo();
   // Sincroniza el color primario/acento con lo configurado en Ajustes del
   // Sistema > Apariencia para el rol "admin". Se hace por mutación directa
   // (en vez de prop-drilling) porque varios subcomponentes de este archivo
@@ -982,6 +984,9 @@ export default function PanelScreen() {
   };
 
   // --- Estado de la pestaña Aspirantes ---
+  const [vistaMovilAspirantes, setVistaMovilAspirantes] = useState<
+    "carreras" | "lista"
+  >("carreras");
   const [carreraActivaIdManual, setCarreraActivaIdManual] = useState<
     number | null
   >(null);
@@ -1563,50 +1568,73 @@ export default function PanelScreen() {
 
           {/* ── PESTAÑA 2: ASPIRANTES ────────────────────────────────── */}
           {pestana === "aspirantes" && (
-            <View style={{ flex: 1, flexDirection: "row" }}>
+            <View style={{ flex: 1, flexDirection: esMovil ? "column" : "row" }}>
               {/* Columna Izquierda: Lista de Carreras */}
-              <View style={styles.aspSidebar}>
-                <View style={styles.aspSidebarHeader}>
-                  <Text style={styles.aspSidebarTitulo}>CARRERAS</Text>
-                  <Pressable
-                    style={styles.aspBotonQR}
-                    onPress={() => router.push("/escaneo-qr")}
-                  >
-                    <Ionicons
-                      name="qr-code-outline"
-                      size={20}
-                      color={TEMA.texto}
-                    />
-                  </Pressable>
-                </View>
-                <ScrollView>
-                  {carreras.map((c) => {
-                    const esActiva = c.id === carreraActivaId;
-                    return (
-                      <Pressable
-                        key={c.id}
-                        style={[
-                          styles.aspCarreraItem,
-                          esActiva && styles.aspCarreraItemActivo,
-                        ]}
-                        onPress={() => setCarreraActivaIdManual(c.id)}
-                      >
-                        <Text
+              {(!esMovil || vistaMovilAspirantes === "carreras") && (
+                <View
+                  style={esMovil ? styles.aspSidebarMovil : styles.aspSidebar}
+                >
+                  <View style={styles.aspSidebarHeader}>
+                    <Text style={styles.aspSidebarTitulo}>CARRERAS</Text>
+                    <Pressable
+                      style={styles.aspBotonQR}
+                      onPress={() => router.push("/escaneo-qr")}
+                    >
+                      <Ionicons
+                        name="qr-code-outline"
+                        size={20}
+                        color={TEMA.texto}
+                      />
+                    </Pressable>
+                  </View>
+                  <ScrollView>
+                    {carreras.map((c) => {
+                      const esActiva = c.id === carreraActivaId;
+                      return (
+                        <Pressable
+                          key={c.id}
                           style={[
-                            styles.aspCarreraItemTexto,
-                            esActiva && styles.aspCarreraItemTextoActivo,
+                            styles.aspCarreraItem,
+                            esActiva && styles.aspCarreraItemActivo,
                           ]}
+                          onPress={() => {
+                            setCarreraActivaIdManual(c.id);
+                            if (esMovil) setVistaMovilAspirantes("lista");
+                          }}
                         >
-                          {c.nombre}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+                          <Text
+                            style={[
+                              styles.aspCarreraItemTexto,
+                              esActiva && styles.aspCarreraItemTextoActivo,
+                            ]}
+                          >
+                            {c.nombre}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Columna Derecha: Lista de Aspirantes */}
+              {(!esMovil || vistaMovilAspirantes === "lista") && (
               <View style={styles.aspMainContent}>
+                {esMovil && (
+                  <Pressable
+                    style={styles.aspVolverCarreras}
+                    onPress={() => setVistaMovilAspirantes("carreras")}
+                  >
+                    <Ionicons
+                      name="chevron-back"
+                      size={18}
+                      color={TEMA.primarioClaro}
+                    />
+                    <Text style={styles.aspVolverCarrerasTexto}>
+                      Carreras
+                    </Text>
+                  </Pressable>
+                )}
                 <View style={styles.aspBuscador}>
                   <Ionicons
                     name="search-outline"
@@ -1765,9 +1793,11 @@ export default function PanelScreen() {
                       size={18}
                       color={TEMA.primario}
                     />
-                    <Text style={[styles.fabTexto, { color: TEMA.primario }]}>
-                      Carga masiva
-                    </Text>
+                    {!esMovil && (
+                      <Text style={[styles.fabTexto, { color: TEMA.primario }]}>
+                        Carga masiva
+                      </Text>
+                    )}
                   </Pressable>
                   <Pressable
                     style={[styles.fab, { backgroundColor: TEMA.primario }]}
@@ -1778,12 +1808,15 @@ export default function PanelScreen() {
                       size={18}
                       color="white"
                     />
-                    <Text style={[styles.fabTexto, { color: TEMA.texto }]}>
-                      Nuevo aspirante
-                    </Text>
+                    {!esMovil && (
+                      <Text style={[styles.fabTexto, { color: TEMA.texto }]}>
+                        Nuevo aspirante
+                      </Text>
+                    )}
                   </Pressable>
                 </View>
               </View>
+              )}
             </View>
           )}
 
@@ -2967,6 +3000,24 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: TEMA.tarjetaBordeSuave,
     paddingTop: 8,
+  },
+  aspSidebarMovil: {
+    flex: 1,
+    width: "100%",
+    paddingTop: 8,
+  },
+  aspVolverCarreras: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  aspVolverCarrerasTexto: {
+    color: TEMA.primarioClaro,
+    fontSize: 13,
+    fontWeight: "600",
   },
   aspSidebarHeader: {
     flexDirection: "row",

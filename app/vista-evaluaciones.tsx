@@ -14,6 +14,7 @@ import {
 import { obtenerPreguntas } from "@/services/preguntasExamenesServicio";
 import { aspiranteFromMap, type Aspirante } from "@/types/aspirante";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Stack, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -75,7 +76,7 @@ const Placeholder = ({
   mensaje: string;
 }) => (
   <View style={styles.placeholderContainer}>
-    <Ionicons name={icon} size={64} color="#E5E7EB" />
+    <Ionicons name={icon} size={64} color={ColoresApp.borde} />
     <Text style={styles.placeholderText}>{mensaje}</Text>
   </View>
 );
@@ -178,47 +179,84 @@ const AspiranteCard = ({
   const { color, label } = getEstadoInfo();
 
   return (
-    <Pressable style={styles.aspiranteCard} onPress={onSelect}>
-      <View style={[styles.avatar, { backgroundColor: `${color}20` }]}>
-        <Text style={[styles.avatarText, { color }]}>
-          {aspirante.nombre[0]}
-        </Text>
-      </View>
-      <View style={styles.aspiranteInfo}>
-        <Text style={styles.aspiranteNombre}>{aspirante.nombre}</Text>
-        <Text style={styles.aspiranteFolio}>Folio: {aspirante.folio}</Text>
-      </View>
-      {tieneCalificacion && (
-        <View style={[styles.badge, { backgroundColor: `${color}1A` }]}>
-          <Text style={[styles.badgeText, { color }]}>
-            {aspirante.resultado}%
+    <Pressable
+      style={({ pressed }) => [
+        styles.aspiranteCard,
+        pressed && styles.aspiranteCardPresionada,
+      ]}
+      onPress={onSelect}
+    >
+      <View style={styles.aspiranteCardFilaSuperior}>
+        <View style={[styles.avatar, { backgroundColor: `${color}20` }]}>
+          <Text style={[styles.avatarText, { color }]}>
+            {aspirante.nombre[0]}
           </Text>
         </View>
-      )}
-      <View style={[styles.badge, { backgroundColor: `${color}1A` }]}>
-        <Text style={[styles.badgeText, { color }]}>{label}</Text>
+        <View style={styles.aspiranteInfo}>
+          <Text style={styles.aspiranteNombre} numberOfLines={1}>
+            {aspirante.nombre}
+          </Text>
+          <Text style={styles.aspiranteFolio}>Folio: {aspirante.folio}</Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={20}
+          color={ColoresApp.borde}
+        />
       </View>
-      {aspirante.estado !== "pendiente" && (
-        <Pressable onPress={onVerExamen} hitSlop={8} style={{ marginLeft: 8 }}>
-          <Ionicons
-            name="document-text-outline"
-            size={20}
-            color={ColoresApp.primario}
-          />
-        </Pressable>
-      )}
-      {(aspirante.estado === "terminado" ||
-        aspirante.estado === "en_revision") && (
-        <Pressable onPress={onReactivar} hitSlop={8} style={{ marginLeft: 8 }}>
-          <Ionicons name="reload-circle-outline" size={22} color="orange" />
-        </Pressable>
-      )}
-      <Pressable onPress={onEliminar} hitSlop={8} style={{ marginLeft: 8 }}>
-        <Ionicons name="trash-outline" size={20} color="#DC2626" />
-      </Pressable>
-      <Pressable onPress={onSelect} hitSlop={8} style={{ marginLeft: 4 }}>
-        <Ionicons name="chevron-forward" size={20} color="#D1D5DB" />
-      </Pressable>
+
+      <View style={styles.aspiranteCardFilaInferior}>
+        <View style={styles.aspiranteBadges}>
+          {tieneCalificacion && (
+            <View style={[styles.badge, { backgroundColor: `${color}1A` }]}>
+              <Text style={[styles.badgeText, { color }]}>
+                {aspirante.resultado}%
+              </Text>
+            </View>
+          )}
+          <View style={[styles.badge, { backgroundColor: `${color}1A` }]}>
+            <View style={[styles.badgeDot, { backgroundColor: color }]} />
+            <Text style={[styles.badgeText, { color }]}>{label}</Text>
+          </View>
+        </View>
+
+        <View style={styles.aspiranteAcciones}>
+          {aspirante.estado !== "pendiente" && (
+            <Pressable
+              onPress={onVerExamen}
+              hitSlop={8}
+              style={styles.aspiranteAccionBoton}
+            >
+              <Ionicons
+                name="document-text-outline"
+                size={18}
+                color={ColoresApp.primario}
+              />
+            </Pressable>
+          )}
+          {(aspirante.estado === "terminado" ||
+            aspirante.estado === "en_revision") && (
+            <Pressable
+              onPress={onReactivar}
+              hitSlop={8}
+              style={styles.aspiranteAccionBoton}
+            >
+              <Ionicons
+                name="reload-circle-outline"
+                size={20}
+                color={ColoresApp.advertencia}
+              />
+            </Pressable>
+          )}
+          <Pressable
+            onPress={onEliminar}
+            hitSlop={8}
+            style={styles.aspiranteAccionBoton}
+          >
+            <Ionicons name="trash-outline" size={18} color={ColoresApp.error} />
+          </Pressable>
+        </View>
+      </View>
     </Pressable>
   );
 };
@@ -774,16 +812,21 @@ export default function VistaGestionEvaluaciones() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: "Supervisión de Examen" }} />
-      <View style={styles.topBar}>
+      <LinearGradient
+        colors={[ColoresApp.oscuro, ColoresApp.oscuroClaro]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.topBar}
+      >
         <Pressable
           onPress={() => router.back()}
           style={styles.topBarBotonIcono}
         >
-          <Ionicons name="arrow-back" size={22} color={ColoresApp.oscuro} />
+          <Ionicons name="arrow-back" size={22} color="white" />
         </Pressable>
         <Text style={styles.topBarTitulo}>Supervisión de Examen</Text>
         <View style={{ width: 34 }} />
-      </View>
+      </LinearGradient>
       <View style={{ flexDirection: esAncho ? "row" : "column", flex: 1 }}>
         {panelCarreras}
         {panelPrincipal}
@@ -817,18 +860,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: ColoresApp.borde,
-    backgroundColor: "white",
+    paddingVertical: 14,
   },
   topBarBotonIcono: {
     padding: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   topBarTitulo: {
     fontSize: 16,
     fontWeight: "bold",
-    color: ColoresApp.oscuro,
+    color: "white",
   },
   container: {
     flex: 1,
@@ -916,15 +958,45 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   aspiranteCard: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: "white",
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
-    padding: 16,
+    padding: 14,
     marginBottom: 12,
-    gap: 14,
+    gap: 12,
+    boxShadow: "0 1px 3px rgba(11,42,74,0.06)",
+  },
+  aspiranteCardPresionada: {
+    backgroundColor: ColoresApp.fondo,
+  },
+  aspiranteCardFilaSuperior: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  aspiranteCardFilaInferior: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: ColoresApp.fondo,
+  },
+  aspiranteBadges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  aspiranteAcciones: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  aspiranteAccionBoton: {
+    padding: 6,
+    borderRadius: 8,
   },
   avatar: {
     width: 44,
@@ -948,13 +1020,20 @@ const styles = StyleSheet.create({
   aspiranteFolio: {
     fontSize: 12,
     color: ColoresApp.textoSecundario,
-    marginTop: 4,
+    marginTop: 2,
   },
   badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 99,
-    marginLeft: 8,
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   badgeText: {
     fontSize: 11,
@@ -985,15 +1064,15 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   filtroChip: {
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 14,
     borderRadius: 99,
-    backgroundColor: ColoresApp.fondo,
+    backgroundColor: "white",
     borderWidth: 1,
     borderColor: ColoresApp.borde,
   },
   filtroChipActivo: {
-    backgroundColor: ColoresApp.primarioFondo,
+    backgroundColor: ColoresApp.primario,
     borderColor: ColoresApp.primario,
   },
   filtroChipTexto: {
@@ -1002,7 +1081,7 @@ const styles = StyleSheet.create({
     color: ColoresApp.textoSecundario,
   },
   filtroChipTextoActivo: {
-    color: ColoresApp.primario,
+    color: "white",
   },
   preguntaRevisionCard: {
     backgroundColor: "white",

@@ -17,6 +17,7 @@ import { supabase } from "@/services/supabaseClient";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import { useResponsivo } from "@/utils/responsive";
 import {
   ActivityIndicator,
   Alert,
@@ -258,6 +259,7 @@ const PublicarAvisoModal = ({
 };
 
 export default function GestionarAvisosScreen() {
+  const { esMovil } = useResponsivo();
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [carreras, setCarreras] = useState<Carrera[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -354,9 +356,12 @@ export default function GestionarAvisosScreen() {
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => setModalVisible(true)}>
+      <Pressable
+        style={[styles.fab, esMovil && styles.fabMovil]}
+        onPress={() => setModalVisible(true)}
+      >
         <Ionicons name="add" size={22} color="white" />
-        <Text style={styles.fabText}>Publicar aviso</Text>
+        {!esMovil && <Text style={styles.fabText}>Publicar aviso</Text>}
       </Pressable>
 
       <PublicarAvisoModal
@@ -414,6 +419,7 @@ const styles = StyleSheet.create({
     boxShadow: "0 4px 6px #0000004D",
   },
   fabText: { color: "white", fontWeight: "bold", fontSize: 16 },
+  fabMovil: { paddingVertical: 14, paddingHorizontal: 14, bottom: 20, right: 16 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

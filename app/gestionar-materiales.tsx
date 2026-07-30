@@ -696,9 +696,9 @@ export default function GestionarMaterialesScreen() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga
-    // inicial de datos desde el servidor al montar la pantalla; no es
+    // Carga inicial de datos desde el servidor al montar la pantalla; no es
     // estado derivado de props, es una sincronización legítima con Supabase.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
   }, [cargar]); // `cargar` está envuelto en useCallback, por lo que este efecto solo se ejecuta una vez.
 
