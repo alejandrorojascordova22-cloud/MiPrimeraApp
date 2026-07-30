@@ -45,6 +45,8 @@ type Pregunta = {
   respuesta_correcta: string;
   es_obligatoria?: boolean;
   media_url?: string;
+  modo_calificacion?: "inmediato" | "programado";
+  fecha_publicacion?: string | null;
 };
 
 type Aspirante = {
@@ -368,7 +370,18 @@ export default function PantallaExamen() {
         setEnviado(true);
         const aciertos = calcularAciertos(preguntas, respuestas);
         const calificacion = calcularCalificacion(aciertos, preguntas.length);
-        const estadoFinal = "terminado";
+
+        // El modo de calificación (inmediato/programado) y la fecha de
+        // publicación viven en el examen, no en el aspirante. Vienen ya
+        // aplanados en cada pregunta gracias a aplanarPreguntaConExamen.
+        const modoCalificacion = preguntas[0]?.modo_calificacion ?? "inmediato";
+        const fechaPublicacion = preguntas[0]?.fecha_publicacion ?? null;
+        const yaSePuedePublicar =
+          !fechaPublicacion || new Date(fechaPublicacion) <= new Date();
+        const estadoFinal =
+          modoCalificacion === "programado" && !yaSePuedePublicar
+            ? "en_revision"
+            : "terminado";
 
         try {
           await finalizarExamen({
@@ -377,6 +390,8 @@ export default function PantallaExamen() {
             total: preguntas.length,
             calificacion,
             estado: estadoFinal,
+            modoCalificacion,
+            fechaPublicacion,
           });
 
           // Limpiar AsyncStorage

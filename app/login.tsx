@@ -98,7 +98,17 @@ export default function LoginScreen() {
         // quedado guardada) antes de iniciar la del aspirante, para que
         // no queden las dos activas a la vez.
         await cerrarTodasLasSesiones();
-        await guardarSesionAspirante(datosAspirante);
+        // validarFolio devuelve la fila cruda de Supabase (snake_case:
+        // carrera_id, carrera_nombre). El resto de la app (examen.tsx,
+        // perfil-aspirante.tsx) espera camelCase (carreraId, carreraNombre)
+        // en la sesión guardada, así que se mapea explícitamente aquí para
+        // no volver a mandar "undefined" a obtenerPreguntas.
+        await guardarSesionAspirante({
+          ...datosAspirante,
+          carreraId: datosAspirante.carrera_id ?? datosAspirante.carreraId,
+          carreraNombre:
+            datosAspirante.carrera_nombre ?? datosAspirante.carreraNombre,
+        });
         router.replace("/perfil-aspirante");
       } else {
         setMensajeError("Folio o correo incorrectos. Revisa tus datos.");

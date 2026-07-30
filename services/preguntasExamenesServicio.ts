@@ -10,7 +10,8 @@ import { supabase } from './supabaseClient';
 const SELECT_PREGUNTA_CON_EXAMEN =
   '*, examenes(materia, seccion, duracion_examen, bloqueo_capturas, ' +
   'bloqueo_navegacion, color_fondo, color_texto, tamano_fuente, ' +
-  'interlineado, margen_izquierdo, alineacion, ' +
+  'interlineado, margen_izquierdo, alineacion, modo_calificacion, ' +
+  'fecha_publicacion, ' +
   'examen_carrera(carrera_id, carreras(nombre)))';
 
 /**
@@ -33,6 +34,8 @@ function aplanarPreguntaConExamen(item: Record<string, any>): Record<string, any
     m.interlineado = examen.interlineado;
     m.margen_izquierdo = examen.margen_izquierdo;
     m.alineacion = examen.alineacion;
+    m.modo_calificacion = examen.modo_calificacion;
+    m.fecha_publicacion = examen.fecha_publicacion;
 
     const ec = examen.examen_carrera;
     if (Array.isArray(ec)) {

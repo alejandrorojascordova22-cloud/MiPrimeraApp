@@ -43,29 +43,66 @@ interface FinalizarExamenParams {
   total: number;
   calificacion: number;
   estado?: string;
+  modoCalificacion?: string | null;
+  fechaPublicacion?: string | null;
 }
 
-/** Registra el cierre formal de una sesión de evaluación para un aspirante. */
+/**
+ * Registra el cierre formal de una sesión de evaluación para un aspirante.
+ *
+ * Guarda también modo_calificacion y fecha_publicacion_calificacion en la
+ * fila del aspirante (copiados del examen al momento de finalizar), porque
+ * perfil-aspirante.tsx los lee directamente de ahí para decidir si mostrar
+ * "en revisión" o el resultado. Si esas columnas todavía no existen en la
+ * tabla `aspirantes` (falta el ALTER TABLE), se reintenta sin ellas para no
+ * perder el resto del guardado, igual que el patrón ya usado en
+ * crearExamen/actualizarExamen.
+ */
 export async function finalizarExamen({
   idAspirante,
   aciertos,
   calificacion,
   estado = 'terminado',
+  modoCalificacion = null,
+  fechaPublicacion = null,
 }: FinalizarExamenParams): Promise<boolean> {
+  const datos: Record<string, any> = {
+    resultado: calificacion,
+    aciertos,
+    estado,
+    examen_finalizado: true,
+    hora_fin: new Date().toISOString(),
+    modo_calificacion: modoCalificacion,
+    fecha_publicacion_calificacion: fechaPublicacion,
+  };
   try {
     const { error } = await supabase
       .from('aspirantes')
-      .update({
-        resultado: calificacion,
-        aciertos,
-        estado,
-        examen_finalizado: true,
-        hora_fin: new Date().toISOString(),
-      })
+      .update(datos)
       .eq('id', idAspirante);
     if (error) throw error;
     return true;
-  } catch (e) {
+  } catch (e: any) {
+    const mensaje = String(e?.message ?? '');
+    const match = mensaje.match(/Could not find the '([^']+)' column/);
+    if (match && match[1] in datos) {
+      console.warn(
+        `finalizarExamen: falta la columna "${match[1]}" en "aspirantes" ` +
+          '(agrégala con ALTER TABLE). Reintentando sin ella...'
+      );
+      delete datos[match[1]];
+      try {
+        const { error } = await supabase
+          .from('aspirantes')
+          .update(datos)
+          .eq('id', idAspirante);
+        if (error) throw error;
+        return true;
+      } catch (e2) {
+        console.warn('Error en finalizarExamen (reintento):', e2);
+        return false;
+      }
+    }
     console.warn('Error en finalizarExamen:', e);
     return false;
   }
