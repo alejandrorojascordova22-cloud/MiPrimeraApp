@@ -1,4 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+// eslint-disable-next-line import/no-unresolved
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,15 +18,23 @@ Deno.serve(async (req: Request) => {
 
   // Inserta en historial_correos y SIEMPRE registra en el log de la función
   // si algo sale mal, en vez de tragarse el error como antes.
-  async function registrarHistorial(fila: Record<string, unknown>) {
-    const { error } = await supabase.from("historial_correos").insert(fila)
+  async function registrarHistorial(datos: {
+    destinatario: string;
+    nombre_aspirante: string | null;
+    tipo: string;
+    asunto: string | null;
+    estado: "omitido" | "error" | "enviado";
+    error?: string;
+    aspirante_id: number | null;
+  }) {
+    const { error } = await supabase.from("historial_correos").insert(datos);
     if (error) {
       console.error(
         "❌ Falló insert en historial_correos:",
         JSON.stringify(error),
         "fila intentada:",
-        JSON.stringify(fila)
-      )
+        JSON.stringify(datos),
+      );
     }
     return error
   }
@@ -64,7 +73,7 @@ Deno.serve(async (req: Request) => {
         destinatario: correo,
         nombre_aspirante: nombre ?? null,
         tipo: tipoCorreo,
-        asunto: asunto ?? null,
+        asunto: asunto,
         estado: "omitido",
         error: "Envío automático desactivado",
         aspirante_id: aspirante_id ?? null,
@@ -84,7 +93,7 @@ Deno.serve(async (req: Request) => {
         destinatario: correo,
         nombre_aspirante: nombre ?? null,
         tipo: tipoCorreo,
-        asunto: asunto ?? null,
+        asunto: asunto,
         estado: "omitido",
         error: "Correo de registro desactivado (registro_automatico_activo = false)",
         aspirante_id: aspirante_id ?? null,
@@ -101,7 +110,7 @@ Deno.serve(async (req: Request) => {
         destinatario: correo,
         nombre_aspirante: nombre ?? null,
         tipo: tipoCorreo,
-        asunto: asunto ?? null,
+        asunto: asunto,
         estado: "omitido",
         error: "Límite diario alcanzado",
         aspirante_id: aspirante_id ?? null,
@@ -145,7 +154,7 @@ Deno.serve(async (req: Request) => {
         destinatario: correo,
         nombre_aspirante: nombre ?? null,
         tipo: tipoCorreo,
-        asunto: asunto ?? null,
+        asunto: asunto,
         estado: "error",
         error: JSON.stringify(mailtrapResult),
         aspirante_id: aspirante_id ?? null,
@@ -158,12 +167,60 @@ Deno.serve(async (req: Request) => {
     }
 
     await supabase.rpc("incrementar_contador_correos")
+    // Después de incrementar el contador, revisamos si hemos alcanzado
+    // el umbral o el límite mensual para avisar a los administradores.
+    try {
+      const { data: confActual, error: confErr } = await supabase
+        .from("configuracion_correos")
+        .select("*")
+        .eq("id", 1)
+        .single();
+
+      if (!confErr && confActual) {
+        const enviadosMes = confActual.correos_enviados_mes_actual ?? 0;
+        const limite = confActual.limite_mensual ?? confActual.limite_diario ?? null;
+        const umbral = confActual.umbral_alerta ?? 80;
+
+        const porcentaje = limite ? Math.round((enviadosMes / limite) * 100) : 0;
+
+        if (limite && porcentaje >= umbral && !confActual.alerta_umbral_enviada) {
+          // Marcar que ya enviamos la alerta por umbral y registrar notificación.
+          await supabase
+            .from("configuracion_correos")
+            .update({ alerta_umbral_enviada: true, ultima_actualizacion: new Date().toISOString() })
+            .eq("id", 1);
+
+          await supabase.from("historial_notificaciones_admin").insert({
+            titulo: "Alerta: umbral de envíos alcanzado",
+            cuerpo: `Enviados ${enviadosMes}/${limite} correos (${porcentaje}%). Revisar campaña.`,
+            nivel: "warning",
+            fecha: new Date().toISOString(),
+          });
+        }
+
+        if (limite && enviadosMes >= limite && !confActual.alerta_limite_enviada) {
+          await supabase
+            .from("configuracion_correos")
+            .update({ alerta_limite_enviada: true, ultima_actualizacion: new Date().toISOString() })
+            .eq("id", 1);
+
+          await supabase.from("historial_notificaciones_admin").insert({
+            titulo: "Límite de correos alcanzado",
+            cuerpo: `Se alcanzó el límite de ${limite} correos para el mes. No se enviarán más correos automáticos.`,
+            nivel: "error",
+            fecha: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Aviso: no se pudo comprobar/enviar notificación admin:", e);
+    }
 
     const historialError = await registrarHistorial({
       destinatario: correo,
       nombre_aspirante: nombre ?? null,
       tipo: tipoCorreo,
-      asunto: asunto ?? null,
+      asunto: asunto,
       estado: "enviado",
       aspirante_id: aspirante_id ?? null,
     })

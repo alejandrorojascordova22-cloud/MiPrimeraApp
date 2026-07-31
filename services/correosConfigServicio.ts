@@ -12,7 +12,7 @@ import { supabase } from './supabaseClient';
 /**
  * Trae la fila única de configuración (id = 1).
  * Antes de leer, llama al RPC que reinicia el contador si cambió el día,
- * así el dashboard siempre muestra el conteo correcto de "hoy".
+ * así el dashboard siempre muestra el conteo correcto del mes actual.
  */
 export async function obtenerConfiguracion(): Promise<Record<string, any> | null> {
   try {
@@ -21,7 +21,7 @@ export async function obtenerConfiguracion(): Promise<Record<string, any> | null
     try {
       await supabase.rpc('reiniciar_contador_si_es_nuevo_dia');
     } catch (e) {
-      console.warn('Aviso: no se pudo llamar reiniciar_contador_si_es_nuevo_dia:', e);
+      console.warn('Aviso: no se pudo llamar reiniciar_contador_correos_si_es_nuevo_mes:', e);
     }
 
     const { data, error } = await supabase
@@ -98,12 +98,35 @@ export async function actualizarLimites({
   });
 }
 
-/** Reinicia manualmente el contador de correos enviados hoy a 0. */
-export async function reiniciarContadorManual(): Promise<boolean> {
+/** Actualiza el límite mensual (si la UI lo soporta) y el umbral de alerta. */
+export async function actualizarLimitesMensuales({
+  limiteMensual,
+  umbralAlerta,
+}: {
+  limiteMensual: number | null;
+  umbralAlerta: number;
+}): Promise<boolean> {
   return actualizar({
-    correos_enviados_hoy: 0,
+    limite_mensual: limiteMensual,
+    umbral_alerta: umbralAlerta,
     ultima_actualizacion: new Date().toISOString(),
   });
+}
+
+/** Reinicia manualmente el contador de correos enviados en el mes a 0. */
+export async function reiniciarContadorMensualManual(): Promise<boolean> {
+  return actualizar({
+    correos_enviados_mes_actual: 0,
+    // También reiniciamos las alertas para que puedan volver a enviarse.
+    alerta_umbral_enviada: false,
+    alerta_limite_enviada: false,
+    ultima_actualizacion: new Date().toISOString(),
+  });
+}
+
+// Compatibilidad con código previo que importaba `reiniciarContadorManual`.
+export async function reiniciarContadorManual(): Promise<boolean> {
+  return reiniciarContadorMensualManual();
 }
 
 /**

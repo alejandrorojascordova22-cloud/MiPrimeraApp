@@ -4,37 +4,37 @@ import { DeslizadorSimple } from "@/components/DeslizadorSimple";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTemaControlador } from "@/hooks/useTemaControlador";
 import {
-  actualizarActivoAdmin,
-  actualizarPerfilAdmin,
-  crearAdministrador,
-  eliminarAdministrador,
-  obtenerAdministradoresSecundarios,
+    actualizarActivoAdmin,
+    actualizarPerfilAdmin,
+    crearAdministrador,
+    eliminarAdministrador,
+    obtenerAdministradoresSecundarios,
 } from "@/services/adminAuthServicio";
 import {
-  actualizarLimites,
-  actualizarModoAutomatico,
-  actualizarRegistroAutomatico,
-  obtenerConfiguracion,
-  obtenerHistorial,
-  reiniciarContadorManual,
+    actualizarLimites,
+    actualizarModoAutomatico,
+    actualizarRegistroAutomatico,
+    obtenerConfiguracion,
+    obtenerHistorial,
+    reiniciarContadorManual,
 } from "@/services/correosConfigServicio";
 import { reporteACsv } from "@/services/reportesServicio";
 import {
-  generarReporteAspirantesPeriodo,
-  purgarAspirantesPeriodo,
+    generarReporteAspirantesPeriodo,
+    purgarAspirantesPeriodo,
 } from "@/services/resultadosAdminServicio";
 import {
-  cerrarSesionAdmin,
-  obtenerSesionAdmin,
+    cerrarSesionAdmin,
+    obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { temaConfigPorDefecto, type TemaConfig } from "@/services/temaConfig";
 import {
-  listarImagenesFondoRecientes,
-  subirImagenFondoTema,
+    listarImagenesFondoRecientes,
+    subirImagenFondoTema,
 } from "@/services/temaConfigServicio";
 import {
-  esContraseniaFuerte,
-  obtenerFeedbackContrasena,
+    esContraseniaFuerte,
+    obtenerFeedbackContrasena,
 } from "@/utils/seguridadServicio";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -42,18 +42,18 @@ import { Stack, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    View,
 } from "react-native";
 
 // --- TIPOS ---
@@ -1043,6 +1043,7 @@ function CorreosConfigModal({
   const [guardando, setGuardando] = useState(false);
   const [limite, setLimite] = useState("100");
   const [umbral, setUmbral] = useState("80");
+  const [limiteMensual, setLimiteMensual] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -1051,6 +1052,11 @@ function CorreosConfigModal({
     if (datos) {
       setLimite(String(datos.limite_diario ?? 100));
       setUmbral(String(datos.umbral_alerta ?? 80));
+      setLimiteMensual(
+        datos.limite_mensual !== undefined && datos.limite_mensual !== null
+          ? String(datos.limite_mensual)
+          : null,
+      );
     }
     setCargando(false);
   }, []);
@@ -1068,6 +1074,13 @@ function CorreosConfigModal({
   const progreso = limiteNum > 0 ? Math.min(1, enviadosHoy / limiteNum) : 0;
   const enAlerta =
     limiteNum > 0 && (enviadosHoy / limiteNum) * 100 >= umbralNum;
+
+  const enviadosMes = Number(config?.correos_enviados_mes_actual ?? 0);
+  const limiteMensualNum = limiteMensual ? parseInt(limiteMensual, 10) || 0 : 0;
+  const progresoMensual =
+    limiteMensualNum > 0 ? Math.min(1, enviadosMes / limiteMensualNum) : 0;
+  const enAlertaMensual =
+    limiteMensualNum > 0 && (enviadosMes / limiteMensualNum) * 100 >= umbralNum;
 
   const toggleModoAutomatico = async (valor: boolean) => {
     setConfig((c) => (c ? { ...c, modo_automatico: valor } : c));
@@ -1091,7 +1104,23 @@ function CorreosConfigModal({
       return;
     }
     setGuardando(true);
-    const exito = await actualizarLimites({ limiteDiario: l, umbralAlerta: u });
+    let exito = false;
+    // Si se proporcionó un límite mensual, lo guardamos (puede ser null para limpiar)
+    if (limiteMensual !== null && limiteMensual !== "") {
+      const lm = parseInt(limiteMensual, 10);
+      if (isNaN(lm) || lm <= 0) {
+        setGuardando(false);
+        Alert.alert("Error", "Ingresa un límite mensual válido mayor a 0.");
+        return;
+      }
+      exito = await actualizarLimitesMensuales({
+        limiteMensual: lm,
+        umbralAlerta: u,
+      });
+    } else {
+      // Guardamos solo límites diarios
+      exito = await actualizarLimites({ limiteDiario: l, umbralAlerta: u });
+    }
     setGuardando(false);
     if (exito) {
       Alert.alert("Listo", "Configuración guardada.");
@@ -1208,6 +1237,13 @@ function CorreosConfigModal({
                   icono="speedometer-outline"
                 />
                 <CampoTexto
+                  etiqueta="Límite mensual de correos (opcional)"
+                  valor={limiteMensual ?? ""}
+                  onChangeText={(v) => setLimiteMensual(v === "" ? null : v)}
+                  keyboardType="number-pad"
+                  icono="calendar-outline"
+                />
+                <CampoTexto
                   etiqueta="Umbral de alerta (%)"
                   valor={umbral}
                   onChangeText={setUmbral}
@@ -1215,6 +1251,48 @@ function CorreosConfigModal({
                   icono="warning-outline"
                 />
               </View>
+
+              {/* Estadísticas mensuales (si aplica) */}
+              {limiteMensualNum > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.dashboardLabel}>
+                    Correos enviados este mes
+                  </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-end",
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={styles.dashboardNumero}>{enviadosMes}</Text>
+                    <Text style={styles.dashboardTotal}>
+                      {" "}
+                      / {limiteMensualNum}
+                    </Text>
+                    {enAlertaMensual && (
+                      <View style={styles.alertaBadge}>
+                        <Text style={styles.alertaBadgeTexto}>
+                          ⚠️ Cerca del límite mensual
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.progresoFondo}>
+                    <View
+                      style={[
+                        styles.progresoRelleno,
+                        {
+                          width: `${progresoMensual * 100}%`,
+                          backgroundColor: enAlertaMensual
+                            ? "orange"
+                            : "#16A34A",
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              )}
 
               <View style={styles.modalActions}>
                 <Pressable
@@ -1562,7 +1640,7 @@ function AparienciaModal({
         rolActivo,
         bytes,
         archivo.name,
-        archivo.mimeType
+        archivo.mimeType,
       );
       if (url) {
         cambiar({ fondoImagenUrl: url });
@@ -1601,7 +1679,9 @@ function AparienciaModal({
                     paddingVertical: 8,
                     borderRadius: 20,
                     alignItems: "center",
-                    backgroundColor: activo ? ColoresApp.primario : ColoresApp.borde,
+                    backgroundColor: activo
+                      ? ColoresApp.primario
+                      : ColoresApp.borde,
                   }}
                 >
                   <Text
@@ -1814,7 +1894,9 @@ function AparienciaModal({
                 />
                 <Pressable
                   onPress={() =>
-                    cambiar({ fondoGradienteAnimado: !borrador.fondoGradienteAnimado })
+                    cambiar({
+                      fondoGradienteAnimado: !borrador.fondoGradienteAnimado,
+                    })
                   }
                   style={{
                     flexDirection: "row",
@@ -1844,7 +1926,9 @@ function AparienciaModal({
                         height: 20,
                         borderRadius: 10,
                         backgroundColor: "white",
-                        alignSelf: borrador.fondoGradienteAnimado ? "flex-end" : "flex-start",
+                        alignSelf: borrador.fondoGradienteAnimado
+                          ? "flex-end"
+                          : "flex-start",
                       }}
                     />
                   </View>
@@ -1856,7 +1940,9 @@ function AparienciaModal({
                     onChangeText={(v) => {
                       const n = parseInt(v, 10);
                       if (!isNaN(n))
-                        cambiar({ fondoGradienteDuracionMs: Math.max(1000, n) });
+                        cambiar({
+                          fondoGradienteDuracionMs: Math.max(1000, n),
+                        });
                     }}
                     keyboardType="number-pad"
                     icono="speedometer-outline"
@@ -1873,7 +1959,10 @@ function AparienciaModal({
                   disabled={subiendoImagen}
                 >
                   {subiendoImagen ? (
-                    <ActivityIndicator size="small" color={ColoresApp.primario} />
+                    <ActivityIndicator
+                      size="small"
+                      color={ColoresApp.primario}
+                    />
                   ) : (
                     <Ionicons
                       name="image-outline"
@@ -1939,7 +2028,8 @@ function AparienciaModal({
                   </>
                 )}
                 <Text style={styles.segmentedLabel}>
-                  OSCURECER IMAGEN ({Math.round(borrador.fondoOpacidadOverlay * 100)}%)
+                  OSCURECER IMAGEN (
+                  {Math.round(borrador.fondoOpacidadOverlay * 100)}%)
                 </Text>
                 <DeslizadorSimple
                   valor={borrador.fondoOpacidadOverlay}

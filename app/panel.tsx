@@ -2,70 +2,70 @@ import { CampoTexto } from "@/components/CampoTexto";
 import { FondoDinamico } from "@/components/FondoDinamico";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTema } from "@/hooks/useTema";
-import { useResponsivo } from "@/utils/responsive";
 import {
-  actualizarPerfilAdmin,
-  obtenerAdministradorPorId,
+    actualizarPerfilAdmin,
+    obtenerAdministradorPorId,
 } from "@/services/adminAuthServicio";
 import {
-  calcularEstadisticas,
-  filtrarPorCarrera,
-  obtenerResultados,
+    calcularEstadisticas,
+    filtrarPorCarrera,
+    obtenerResultados,
 } from "@/services/adminControlador";
 import {
-  actualizarAsistencia,
-  eliminarAspirante,
-  obtenerAsistenciasRecientes,
-  obtenerAspirantesPorCarrera,
-  reactivarExamenAspirante,
+    actualizarAsistencia,
+    eliminarAspirante,
+    obtenerAsistenciasRecientes,
+    obtenerAspirantesPorCarrera,
+    reactivarExamenAspirante,
 } from "@/services/aspirantesServicio";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
-  actualizarLimites,
-  actualizarModoAutomatico,
-  actualizarRegistroAutomatico,
-  obtenerConfiguracion,
-  reiniciarContadorManual,
+    actualizarLimites,
+    actualizarModoAutomatico,
+    actualizarRegistroAutomatico,
+    obtenerConfiguracion,
+    reiniciarContadorMensualManual,
 } from "@/services/correosConfigServicio";
 import { obtenerVentanaExamenPorCarrera } from "@/services/preguntasExamenesServicio";
 import {
-  actualizarLimitesPush,
-  actualizarModoAutomaticoPush,
-  obtenerConfiguracionPush,
-  obtenerHistorialPush,
-  reiniciarContadorPushManual,
+    actualizarLimitesPush,
+    actualizarModoAutomaticoPush,
+    obtenerConfiguracionPush,
+    obtenerHistorialPush,
+    reiniciarContadorPushManual,
 } from "@/services/pushConfigServicio";
 import { obtenerResultadosPorCarrera } from "@/services/resultadosAdminServicio";
 import {
-  cerrarTodasLasSesiones,
-  guardarSesionAdmin,
-  obtenerSesionAdmin,
+    cerrarTodasLasSesiones,
+    guardarSesionAdmin,
+    obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { supabase } from "@/services/supabaseClient";
 import type { ResultadoAspirante } from "@/types/resultadoAspirante";
 import {
-  exportarResultadosExcel,
-  exportarResultadosPDF,
-  type FilaExportable,
+    exportarResultadosExcel,
+    exportarResultadosPDF,
+    type FilaExportable,
 } from "@/utils/exportadorResultadosServicio";
+import { useResponsivo } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from "react-native";
 
 // Paleta oscura inspirada en el diseño de referencia (Admissions Pro):
@@ -445,19 +445,23 @@ const AccesoDestacado = ({
 // acciones de pausar/reanudar + ver detalles.
 const CampanaCorreoCard = ({
   titulo = "Campaña de Correo",
+  subtitulo,
   enviados,
   limite,
   umbral,
   activo,
+  totalHistorico,
   actualizando,
   onTogglePausa,
   onVerDetalles,
 }: {
   titulo?: string;
+  subtitulo?: string;
   enviados: number;
   limite: number;
   umbral: number;
   activo: boolean;
+  totalHistorico?: number;
   actualizando: boolean;
   onTogglePausa: () => void;
   onVerDetalles: () => void;
@@ -501,7 +505,9 @@ const CampanaCorreoCard = ({
 
       <View style={styles.campanaNumeroRow}>
         <Text style={styles.campanaNumero}>{enviados}</Text>
-        <Text style={styles.campanaNumeroSub}>/ {limite} enviados hoy</Text>
+        <Text style={styles.campanaNumeroSub}>
+          / {limite} {subtitulo ?? "enviados hoy"}
+        </Text>
       </View>
 
       <View style={styles.campanaBarraFondo}>
@@ -541,6 +547,13 @@ const CampanaCorreoCard = ({
           <Text style={styles.campanaBotonSecundarioTexto}>Ver Detalles</Text>
         </Pressable>
       </View>
+      {!!totalHistorico && (
+        <Text
+          style={[styles.campanaHistorico, { color: TEMA.textoSecundario }]}
+        >
+          Total histórico: {totalHistorico}
+        </Text>
+      )}
     </View>
   );
 };
@@ -1568,7 +1581,9 @@ export default function PanelScreen() {
 
           {/* ── PESTAÑA 2: ASPIRANTES ────────────────────────────────── */}
           {pestana === "aspirantes" && (
-            <View style={{ flex: 1, flexDirection: esMovil ? "column" : "row" }}>
+            <View
+              style={{ flex: 1, flexDirection: esMovil ? "column" : "row" }}
+            >
               {/* Columna Izquierda: Lista de Carreras */}
               {(!esMovil || vistaMovilAspirantes === "carreras") && (
                 <View
@@ -1619,203 +1634,205 @@ export default function PanelScreen() {
 
               {/* Columna Derecha: Lista de Aspirantes */}
               {(!esMovil || vistaMovilAspirantes === "lista") && (
-              <View style={styles.aspMainContent}>
-                {esMovil && (
-                  <Pressable
-                    style={styles.aspVolverCarreras}
-                    onPress={() => setVistaMovilAspirantes("carreras")}
-                  >
-                    <Ionicons
-                      name="chevron-back"
-                      size={18}
-                      color={TEMA.primarioClaro}
-                    />
-                    <Text style={styles.aspVolverCarrerasTexto}>
-                      Carreras
-                    </Text>
-                  </Pressable>
-                )}
-                <View style={styles.aspBuscador}>
-                  <Ionicons
-                    name="search-outline"
-                    size={16}
-                    color={TEMA.textoSecundario}
-                  />
-                  <TextInput
-                    style={{ flex: 1, fontSize: 13, color: TEMA.texto }}
-                    placeholder="Buscar por nombre o folio…"
-                    placeholderTextColor={TEMA.textoSecundario}
-                    value={busquedaAspirante}
-                    onChangeText={setBusquedaAspirante}
-                  />
-                </View>
-
-                <View style={styles.aspHeaderLista}>
-                  <Text style={styles.aspHeaderListaTexto}>
-                    {carreraActiva?.nombre ?? "Selecciona carrera"}
-                  </Text>
-                  <Text style={styles.aspHeaderListaSubtexto}>
-                    {aspirantesBD.length} aspirantes · {asistieron} con
-                    asistencia
-                  </Text>
-                </View>
-
-                {cargandoAspirantes ? (
-                  <ActivityIndicator
-                    style={{ flex: 1 }}
-                    size="large"
-                    color={TEMA.primario}
-                  />
-                ) : (
-                  <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-                    {aspirantesFiltrados.length === 0 && (
-                      <Text
-                        style={{
-                          textAlign: "center",
-                          color: TEMA.textoSecundario,
-                          marginTop: 40,
-                        }}
-                      >
-                        No hay aspirantes registrados en esta carrera.
+                <View style={styles.aspMainContent}>
+                  {esMovil && (
+                    <Pressable
+                      style={styles.aspVolverCarreras}
+                      onPress={() => setVistaMovilAspirantes("carreras")}
+                    >
+                      <Ionicons
+                        name="chevron-back"
+                        size={18}
+                        color={TEMA.primarioClaro}
+                      />
+                      <Text style={styles.aspVolverCarrerasTexto}>
+                        Carreras
                       </Text>
-                    )}
-                    {aspirantesFiltrados.map((asp) => {
-                      const estado = asp.estado?.toString() ?? "pendiente";
-                      const estadoLabel =
-                        estado === "terminado"
-                          ? "Finalizado"
-                          : estado === "en_revision"
-                            ? "En revisión"
-                            : "Pendiente";
-                      const estadoColor =
-                        estado === "terminado"
-                          ? "#3B82F6"
-                          : estado === "en_revision"
-                            ? "#F59E0B"
-                            : "#9CA3AF";
-                      const asistio = asp.asistencia === true;
-                      return (
-                        <View key={asp.id} style={styles.aspFila}>
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={styles.aspFilaNombre}
-                              numberOfLines={1}
-                            >
-                              {asp.nombre ?? "Sin nombre"}
-                            </Text>
-                            <Text style={styles.aspFilaFolio}>
-                              Folio: {asp.folio ?? "—"}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.aspEstadoBadge,
-                              { backgroundColor: `${estadoColor}1A` },
-                            ]}
-                          >
-                            <Text
+                    </Pressable>
+                  )}
+                  <View style={styles.aspBuscador}>
+                    <Ionicons
+                      name="search-outline"
+                      size={16}
+                      color={TEMA.textoSecundario}
+                    />
+                    <TextInput
+                      style={{ flex: 1, fontSize: 13, color: TEMA.texto }}
+                      placeholder="Buscar por nombre o folio…"
+                      placeholderTextColor={TEMA.textoSecundario}
+                      value={busquedaAspirante}
+                      onChangeText={setBusquedaAspirante}
+                    />
+                  </View>
+
+                  <View style={styles.aspHeaderLista}>
+                    <Text style={styles.aspHeaderListaTexto}>
+                      {carreraActiva?.nombre ?? "Selecciona carrera"}
+                    </Text>
+                    <Text style={styles.aspHeaderListaSubtexto}>
+                      {aspirantesBD.length} aspirantes · {asistieron} con
+                      asistencia
+                    </Text>
+                  </View>
+
+                  {cargandoAspirantes ? (
+                    <ActivityIndicator
+                      style={{ flex: 1 }}
+                      size="large"
+                      color={TEMA.primario}
+                    />
+                  ) : (
+                    <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+                      {aspirantesFiltrados.length === 0 && (
+                        <Text
+                          style={{
+                            textAlign: "center",
+                            color: TEMA.textoSecundario,
+                            marginTop: 40,
+                          }}
+                        >
+                          No hay aspirantes registrados en esta carrera.
+                        </Text>
+                      )}
+                      {aspirantesFiltrados.map((asp) => {
+                        const estado = asp.estado?.toString() ?? "pendiente";
+                        const estadoLabel =
+                          estado === "terminado"
+                            ? "Finalizado"
+                            : estado === "en_revision"
+                              ? "En revisión"
+                              : "Pendiente";
+                        const estadoColor =
+                          estado === "terminado"
+                            ? "#3B82F6"
+                            : estado === "en_revision"
+                              ? "#F59E0B"
+                              : "#9CA3AF";
+                        const asistio = asp.asistencia === true;
+                        return (
+                          <View key={asp.id} style={styles.aspFila}>
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={styles.aspFilaNombre}
+                                numberOfLines={1}
+                              >
+                                {asp.nombre ?? "Sin nombre"}
+                              </Text>
+                              <Text style={styles.aspFilaFolio}>
+                                Folio: {asp.folio ?? "—"}
+                              </Text>
+                            </View>
+                            <View
                               style={[
-                                styles.aspEstadoTexto,
-                                { color: estadoColor },
+                                styles.aspEstadoBadge,
+                                { backgroundColor: `${estadoColor}1A` },
                               ]}
                             >
-                              {estadoLabel}
-                            </Text>
-                          </View>
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                            }}
-                          >
-                            <Text
+                              <Text
+                                style={[
+                                  styles.aspEstadoTexto,
+                                  { color: estadoColor },
+                                ]}
+                              >
+                                {estadoLabel}
+                              </Text>
+                            </View>
+                            <View
                               style={{
-                                fontSize: 11,
-                                color: asistio
-                                  ? TEMA.exito
-                                  : TEMA.textoSecundario,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
                               }}
                             >
-                              {asistio ? "Presente" : "Ausente"}
-                            </Text>
-                            <Switch
-                              value={asistio}
-                              onValueChange={(v) => toggleAsistencia(asp, v)}
-                              trackColor={{ true: TEMA.exito }}
-                            />
-                          </View>
-                          {(estado === "terminado" ||
-                            estado === "en_revision") && (
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: asistio
+                                    ? TEMA.exito
+                                    : TEMA.textoSecundario,
+                                }}
+                              >
+                                {asistio ? "Presente" : "Ausente"}
+                              </Text>
+                              <Switch
+                                value={asistio}
+                                onValueChange={(v) => toggleAsistencia(asp, v)}
+                                trackColor={{ true: TEMA.exito }}
+                              />
+                            </View>
+                            {(estado === "terminado" ||
+                              estado === "en_revision") && (
+                              <Pressable
+                                onPress={() => confirmarReactivarExamen(asp)}
+                                hitSlop={8}
+                                style={{ marginLeft: 8 }}
+                              >
+                                <Ionicons
+                                  name="reload-circle-outline"
+                                  size={22}
+                                  color="orange"
+                                />
+                              </Pressable>
+                            )}
                             <Pressable
-                              onPress={() => confirmarReactivarExamen(asp)}
+                              onPress={() => confirmarEliminarAspirante(asp)}
                               hitSlop={8}
                               style={{ marginLeft: 8 }}
                             >
                               <Ionicons
-                                name="reload-circle-outline"
-                                size={22}
-                                color="orange"
+                                name="trash-outline"
+                                size={20}
+                                color={TEMA.peligro}
                               />
                             </Pressable>
-                          )}
-                          <Pressable
-                            onPress={() => confirmarEliminarAspirante(asp)}
-                            hitSlop={8}
-                            style={{ marginLeft: 8 }}
-                          >
-                            <Ionicons
-                              name="trash-outline"
-                              size={20}
-                              color={TEMA.peligro}
-                            />
-                          </Pressable>
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                )}
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
 
-                <View style={styles.aspFabRow}>
-                  <Pressable
-                    style={[
-                      styles.fab,
-                      {
-                        backgroundColor: TEMA.tarjeta,
-                        borderWidth: 1,
-                        borderColor: TEMA.tarjetaBorde,
-                      },
-                    ]}
-                    onPress={() => router.push("/carga-masiva")}
-                  >
-                    <Ionicons
-                      name="cloud-upload-outline"
-                      size={18}
-                      color={TEMA.primario}
-                    />
-                    {!esMovil && (
-                      <Text style={[styles.fabTexto, { color: TEMA.primario }]}>
-                        Carga masiva
-                      </Text>
-                    )}
-                  </Pressable>
-                  <Pressable
-                    style={[styles.fab, { backgroundColor: TEMA.primario }]}
-                    onPress={() => router.push("/registro-aspirante")}
-                  >
-                    <Ionicons
-                      name="person-add-outline"
-                      size={18}
-                      color="white"
-                    />
-                    {!esMovil && (
-                      <Text style={[styles.fabTexto, { color: TEMA.texto }]}>
-                        Nuevo aspirante
-                      </Text>
-                    )}
-                  </Pressable>
+                  <View style={styles.aspFabRow}>
+                    <Pressable
+                      style={[
+                        styles.fab,
+                        {
+                          backgroundColor: TEMA.tarjeta,
+                          borderWidth: 1,
+                          borderColor: TEMA.tarjetaBorde,
+                        },
+                      ]}
+                      onPress={() => router.push("/carga-masiva")}
+                    >
+                      <Ionicons
+                        name="cloud-upload-outline"
+                        size={18}
+                        color={TEMA.primario}
+                      />
+                      {!esMovil && (
+                        <Text
+                          style={[styles.fabTexto, { color: TEMA.primario }]}
+                        >
+                          Carga masiva
+                        </Text>
+                      )}
+                    </Pressable>
+                    <Pressable
+                      style={[styles.fab, { backgroundColor: TEMA.primario }]}
+                      onPress={() => router.push("/registro-aspirante")}
+                    >
+                      <Ionicons
+                        name="person-add-outline"
+                        size={18}
+                        color="white"
+                      />
+                      {!esMovil && (
+                        <Text style={[styles.fabTexto, { color: TEMA.texto }]}>
+                          Nuevo aspirante
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
                 </View>
-              </View>
               )}
             </View>
           )}
@@ -1869,10 +1886,21 @@ export default function PanelScreen() {
                 <>
                   <View style={{ height: 16 }} />
                   <CampanaCorreoCard
-                    enviados={configCorreos.correos_enviados_hoy ?? 0}
-                    limite={configCorreos.limite_diario ?? 0}
+                    titulo="Campaña de Correo"
+                    subtitulo="enviados este mes"
+                    enviados={
+                      configCorreos.correos_enviados_mes_actual ??
+                      configCorreos.correos_enviados_hoy ??
+                      0
+                    }
+                    limite={
+                      configCorreos.limite_mensual ??
+                      configCorreos.limite_diario ??
+                      0
+                    }
                     umbral={configCorreos.umbral_alerta ?? 80}
                     activo={!!configCorreos.modo_automatico}
+                    totalHistorico={configCorreos.correos_enviados_total ?? 0}
                     actualizando={actualizandoCorreo}
                     onTogglePausa={alternarModoAutomatico}
                     onVerDetalles={() => setCorreosModalVisible(true)}
@@ -1888,10 +1916,24 @@ export default function PanelScreen() {
                   <View style={{ height: 16 }} />
                   <CampanaCorreoCard
                     titulo="Notificaciones Push"
-                    enviados={configPush.notificaciones_enviadas_hoy ?? 0}
-                    limite={configPush.limite_diario ?? 0}
+                    subtitulo={
+                      configPush.limite_mensual
+                        ? "enviados este mes"
+                        : "enviados hoy"
+                    }
+                    enviados={
+                      configPush.notificaciones_enviadas_mes_actual ??
+                      configPush.notificaciones_enviadas_hoy ??
+                      0
+                    }
+                    limite={
+                      configPush.limite_mensual ?? configPush.limite_diario ?? 0
+                    }
                     umbral={configPush.umbral_alerta ?? 70}
                     activo={!!configPush.modo_automatico}
+                    totalHistorico={
+                      configPush.notificaciones_enviadas_total ?? 0
+                    }
                     actualizando={actualizandoPush}
                     onTogglePausa={alternarModoAutomaticoPush}
                     onVerDetalles={() => setPushModalVisible(true)}
@@ -2840,6 +2882,11 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     textAlign: "right",
   },
+  campanaHistorico: {
+    fontSize: 12,
+    marginTop: 10,
+    textAlign: "right",
+  },
   campanaBotonesRow: { flexDirection: "row", gap: 10 },
   campanaBotonPrincipal: {
     flex: 1,
@@ -3568,7 +3615,7 @@ function CorreosConfigModal({
 
   const reiniciarContador = async () => {
     setGuardando(true);
-    await reiniciarContadorManual();
+    await reiniciarContadorMensualManual();
     onConfigUpdated();
     setGuardando(false);
   };
@@ -3641,7 +3688,9 @@ function CorreosConfigModal({
                   />
                 </View>
 
-                <Text style={styles.dashboardLabel}>Correos enviados hoy</Text>
+                <Text style={styles.dashboardLabel}>
+                  Correos enviados este mes
+                </Text>
                 <View
                   style={{
                     flexDirection: "row",

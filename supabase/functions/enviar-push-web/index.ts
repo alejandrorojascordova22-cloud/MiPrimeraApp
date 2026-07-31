@@ -15,7 +15,7 @@
 //   supabase functions deploy enviar-push-web
 //
 // Secrets necesarios (una sola vez):
-//   supabase secrets set VAPID_PUBLIC_KEY="BPFYX8NfVBlJXpg0mU8M8Coc7V8sbzwmF6UMLbR5CjppRkRkU2mVVZKZvD5EWg_Evln1jnJQFamT37X3TBGTGcs"
+//   supabase secrets set VAPID_PUBLIC_KEY="BBqIwpbFfHuHqmGZM4hjhbTAHxqp0GX8PV5NNg_vrwrf3mXnGof4RdoZ2TilfLKJ2E0Yz9lHLZEA2CaKvX1RqqI"
 //   supabase secrets set VAPID_PRIVATE_KEY="<tu clave privada VAPID>"
 //   supabase secrets set VAPID_SUBJECT="mailto:tu-correo@dominio.com"
 //
@@ -24,6 +24,7 @@
 // y actualiza también VAPID_PUBLIC_KEY en
 // services/webNotificacionesServicio.ts para que coincida.
 
+// eslint-disable-next-line import/no-unresolved
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
@@ -57,6 +58,8 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const fechaAhora = new Date().toISOString();
+
     // 1. Traer todas las suscripciones web de esos aspirantes.
     const { data: suscripciones, error } = await supabaseAdmin
       .from('push_suscripciones_web')
@@ -65,7 +68,42 @@ Deno.serve(async (req: Request) => {
 
     if (error) throw error;
 
+    async function registrarHistorialPush({
+      estado,
+      detalle,
+      destinatarios,
+      titulo,
+      cuerpo,
+    }: {
+      estado: 'enviado' | 'error' | 'omitido_por_limite';
+      detalle?: string;
+      destinatarios: number;
+      titulo: string;
+      cuerpo: string;
+    }) {
+      try {
+        await supabaseAdmin.from('historial_push').insert({
+          titulo,
+          cuerpo,
+          estado,
+          detalle,
+          destinatarios,
+          fecha: fechaAhora,
+        });
+      } catch (e) {
+        console.warn('Aviso: no se pudo registrar historial_push:', e);
+      }
+    }
+
     if (!suscripciones || suscripciones.length === 0) {
+      await registrarHistorialPush({
+        estado: 'error',
+        detalle: 'No hay suscripciones web activas para los destinatarios seleccionados.',
+        destinatarios: aspiranteIds.length,
+        titulo,
+        cuerpo,
+      });
+
       return new Response(JSON.stringify({ enviado: false, motivo: 'sin_suscripciones' }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -103,6 +141,78 @@ Deno.serve(async (req: Request) => {
 
     const enviados = resultados.filter((r) => r.status === 'fulfilled').length;
     const fallidos = resultados.length - enviados;
+
+    await registrarHistorialPush({
+      estado: enviados > 0 ? 'enviado' : 'error',
+      detalle:
+        enviados > 0
+          ? fallidos > 0
+            ? `Enviados ${enviados}, fallidos ${fallidos}.`
+            : `Enviados ${enviados} mensajes push.`
+          : `Todos los intentos fallaron (${fallidos} fallidos).`,
+      titulo,
+      cuerpo,
+      destinatarios: suscripciones.length,
+    });
+
+    // 3. Actualizar contadores en la BD y generar notificaciones admin cuando aplique.
+    try {
+      // Incrementar contador mensual/total en configuracion_push
+      try {
+        await supabaseAdmin.rpc('incrementar_contador_push', { cantidad: enviados });
+      } catch (e) {
+        // Intentar la versión sin parámetros por compatibilidad
+        try {
+          await supabaseAdmin.rpc('incrementar_contador_push');
+        } catch (e2) {
+          console.warn('Aviso: no se pudo llamar incrementar_contador_push:', e, e2);
+        }
+      }
+
+      // Leer configuración actualizada para evaluar umbral/límite
+      const { data: conf, error: confErr } = await supabaseAdmin
+        .from('configuracion_push')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (!confErr && conf) {
+        const enviadosMes = conf.notificaciones_enviadas_mes_actual ?? 0;
+        const limite = conf.limite_mensual ?? conf.limite_diario ?? null;
+        const umbral = conf.umbral_alerta ?? 70;
+        const porcentaje = limite ? Math.round((enviadosMes / limite) * 100) : 0;
+
+        if (limite && porcentaje >= umbral && !conf.alerta_umbral_enviada) {
+          await supabaseAdmin
+            .from('configuracion_push')
+            .update({ alerta_umbral_enviada: true, ultima_actualizacion: new Date().toISOString() })
+            .eq('id', 1);
+
+          await supabaseAdmin.from('historial_notificaciones_admin').insert({
+            titulo: 'Alerta Push: umbral alcanzado',
+            cuerpo: `Notificaciones push enviadas ${enviadosMes}/${limite} (${porcentaje}%).`,
+            nivel: 'warning',
+            fecha: new Date().toISOString(),
+          });
+        }
+
+        if (limite && enviadosMes >= limite && !conf.alerta_limite_enviada) {
+          await supabaseAdmin
+            .from('configuracion_push')
+            .update({ alerta_limite_enviada: true, ultima_actualizacion: new Date().toISOString() })
+            .eq('id', 1);
+
+          await supabaseAdmin.from('historial_notificaciones_admin').insert({
+            titulo: 'Límite Push alcanzado',
+            cuerpo: `Se alcanzó el límite de ${limite} notificaciones push para el mes.`,
+            nivel: 'error',
+            fecha: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Aviso: error al actualizar contadores/alertas push:', e);
+    }
 
     return new Response(
       JSON.stringify({ enviado: enviados > 0, enviados, fallidos }),
