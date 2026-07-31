@@ -6,6 +6,9 @@ import {
   asignarCarrerasMaterial,
   eliminarMaterialEstudio,
   obtenerMaterialesEstudio,
+  formatearBytes,
+  formatearTiempoRestante,
+  ProgresoSubida,
   reemplazarArchivoMaterial,
   subirMaterialEstudio,
 } from "@/services/materialesEstudioServicio";
@@ -271,6 +274,27 @@ const SelectorCarreras = ({
   </View>
 );
 
+// Barra de progreso de subida: % , MB subidos/total y tiempo restante estimado.
+const BarraProgresoSubida = ({ progreso }: { progreso: ProgresoSubida }) => {
+  const porcentaje = Math.min(100, Math.max(0, progreso.porcentaje));
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={styles.progresoTrack}>
+        <View style={[styles.progresoFill, { width: `${porcentaje}%` }]} />
+      </View>
+      <View style={styles.progresoInfoFila}>
+        <Text style={styles.progresoTexto}>
+          {formatearBytes(progreso.cargadoBytes)} de{" "}
+          {formatearBytes(progreso.totalBytes)} ({porcentaje.toFixed(0)}%)
+        </Text>
+        <Text style={styles.progresoTexto}>
+          Falta: {formatearTiempoRestante(progreso.segundosRestantesEstimados)}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 // Modal para subir un material nuevo
 const SubirMaterialModal = ({
   visible,
@@ -302,6 +326,7 @@ const SubirMaterialModal = ({
   const [archivo, setArchivo] =
     useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [subiendo, setSubiendo] = useState(false);
+  const [progreso, setProgreso] = useState<ProgresoSubida | null>(null);
 
   const resetAndClose = () => {
     setTitulo("");
@@ -311,6 +336,7 @@ const SubirMaterialModal = ({
     setCarrerasSeleccionadas([]);
     setArchivo(null);
     setSubiendo(false);
+    setProgreso(null);
     onClose();
   };
 
@@ -351,6 +377,7 @@ const SubirMaterialModal = ({
       return;
     }
     setSubiendo(true);
+    setProgreso(null);
     try {
       const respuesta = await fetch(archivo.uri);
       const bytes = await respuesta.blob();
@@ -365,6 +392,7 @@ const SubirMaterialModal = ({
         materia: materia.trim() || undefined,
         aplicaATodas,
         carrerasIds: carrerasSeleccionadas,
+        onProgreso: setProgreso,
       });
       if (res) {
         onGuardado();
@@ -417,7 +445,11 @@ const SubirMaterialModal = ({
             carrerasSeleccionadas={carrerasSeleccionadas}
             onToggleCarrera={toggleCarrera}
           />
-          <Pressable style={styles.filePickerButton} onPress={elegirArchivo}>
+          <Pressable
+            style={styles.filePickerButton}
+            onPress={elegirArchivo}
+            disabled={subiendo}
+          >
             <Ionicons
               name="attach-outline"
               size={18}
@@ -430,6 +462,14 @@ const SubirMaterialModal = ({
               {archivo ? archivo.name : "Seleccionar archivo"}
             </Text>
           </Pressable>
+          {subiendo && (
+            <View style={{ gap: 6 }}>
+              <Text style={styles.progresoTitulo}>
+                {progreso ? "Subiendo archivo…" : "Preparando subida…"}
+              </Text>
+              {progreso && <BarraProgresoSubida progreso={progreso} />}
+            </View>
+          )}
           <View style={styles.modalActions}>
             <Pressable
               style={[styles.modalButton, styles.modalButtonCancel]}
@@ -496,10 +536,12 @@ const EditarMaterialModal = ({
   const [nuevoArchivo, setNuevoArchivo] =
     useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [progreso, setProgreso] = useState<ProgresoSubida | null>(null);
 
   const resetAndClose = () => {
     setNuevoArchivo(null);
     setGuardando(false);
+    setProgreso(null);
     onClose();
   };
 
@@ -537,6 +579,7 @@ const EditarMaterialModal = ({
       return;
     }
     setGuardando(true);
+    setProgreso(null);
     try {
       const okInfo = await actualizarInfoMaterial({
         id: material.id,
@@ -558,6 +601,7 @@ const EditarMaterialModal = ({
           nombreArchivoOriginal: nuevoArchivo.name,
           bytes,
           mimeType: nuevoArchivo.mimeType,
+          onProgreso: setProgreso,
         });
       }
 
@@ -614,7 +658,11 @@ const EditarMaterialModal = ({
             carrerasSeleccionadas={carrerasSeleccionadas}
             onToggleCarrera={toggleCarrera}
           />
-          <Pressable style={styles.filePickerButton} onPress={elegirArchivo}>
+          <Pressable
+            style={styles.filePickerButton}
+            onPress={elegirArchivo}
+            disabled={guardando}
+          >
             <Ionicons
               name="swap-horizontal-outline"
               size={18}
@@ -629,6 +677,14 @@ const EditarMaterialModal = ({
                 : "Reemplazar archivo (opcional)"}
             </Text>
           </Pressable>
+          {guardando && nuevoArchivo && (
+            <View style={{ gap: 6 }}>
+              <Text style={styles.progresoTitulo}>
+                {progreso ? "Subiendo archivo…" : "Preparando subida…"}
+              </Text>
+              {progreso && <BarraProgresoSubida progreso={progreso} />}
+            </View>
+          )}
           <View style={styles.modalActions}>
             <Pressable
               style={[styles.modalButton, styles.modalButtonCancel]}
@@ -994,6 +1050,30 @@ const styles = StyleSheet.create({
   },
   modalButtonSubmit: {
     backgroundColor: ColoresApp.primario,
+  },
+  progresoTitulo: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: ColoresApp.textoSecundario,
+  },
+  progresoTrack: {
+    height: 8,
+    borderRadius: 99,
+    backgroundColor: ColoresApp.fondo,
+    overflow: "hidden",
+  },
+  progresoFill: {
+    height: "100%",
+    borderRadius: 99,
+    backgroundColor: ColoresApp.primario,
+  },
+  progresoInfoFila: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  progresoTexto: {
+    fontSize: 11,
+    color: ColoresApp.textoSecundario,
   },
   fieldLabel: {
     fontSize: 12,

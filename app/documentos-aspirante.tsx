@@ -1,15 +1,13 @@
 import { ColoresApp } from "@/constants/coloresApp";
-import {
-  obtenerMaterialesEstudio,
-  obtenerUrlGuiaEstudio,
-} from "@/services/materialesEstudioServicio";
+import { obtenerMaterialesEstudio } from "@/services/materialesEstudioServicio";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { createElement, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -26,6 +24,14 @@ import {
  * perfil-aspirante.tsx. Se movió a su propia pantalla (accesible desde el
  * ítem "Documentos" del menú lateral) para dejar la pantalla principal más
  * limpia; en su lugar, ahí ahora se muestra el manual de usuario.
+ *
+ * Nota: ya no hay una tarjeta separada de "Guía de estudio", porque la guía
+ * es, en la práctica, un material de estudio más (tipo PDF) subido por el
+ * admin desde "Gestionar materiales". Mostrarla aparte duplicaba la misma
+ * información. Ahora todo vive junto en la lista de "Materiales de estudio",
+ * y cada material se puede visualizar directamente en pantalla (PDF, imagen,
+ * audio o video) sin salir de la app, además de poder abrirlo en una pestaña
+ * nueva si el aspirante lo prefiere.
  */
 
 const ICONO_POR_TIPO_MATERIAL: Record<string, keyof typeof Ionicons.glyphMap> =
@@ -49,6 +55,9 @@ const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
   const tipo: string = material.tipo ?? "otro";
   const url: string = material.url_publica;
   const [previewError, setPreviewError] = useState(false);
+  const [verEnPantalla, setVerEnPantalla] = useState(false);
+
+  const puedeVerEnPantalla = Platform.OS === "web";
 
   return (
     <View style={styles.materialCard}>
@@ -77,13 +86,46 @@ const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
             </Text>
           )}
 
-          <Pressable
-            style={styles.botonVerMaterial}
-            onPress={() => Linking.openURL(url)}
-          >
-            <Text style={styles.textoBotonVerMaterial}>Abrir</Text>
-            <Ionicons name="open-outline" size={13} color={ColoresApp.primario} />
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            {puedeVerEnPantalla && (
+              <Pressable
+                style={[
+                  styles.botonVerMaterial,
+                  verEnPantalla && styles.botonVerMaterialActivo,
+                ]}
+                onPress={() => setVerEnPantalla((v) => !v)}
+              >
+                <Text
+                  style={[
+                    styles.textoBotonVerMaterial,
+                    verEnPantalla && styles.textoBotonVerMaterialActivo,
+                  ]}
+                >
+                  {verEnPantalla ? "Ocultar" : "Ver aquí"}
+                </Text>
+                <Ionicons
+                  name={verEnPantalla ? "eye-off-outline" : "eye-outline"}
+                  size={13}
+                  color={
+                    verEnPantalla ? "white" : ColoresApp.primario
+                  }
+                />
+              </Pressable>
+            )}
+            <Pressable
+              style={styles.botonVerMaterial}
+              onPress={() => Linking.openURL(url)}
+            >
+              <Text style={styles.textoBotonVerMaterial}>
+                {puedeVerEnPantalla ? "Abrir en pestaña nueva" : "Abrir"}
+              </Text>
+              <Ionicons
+                name="open-outline"
+                size={13}
+                color={ColoresApp.primario}
+              />
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -95,6 +137,47 @@ const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
           onError={() => setPreviewError(true)}
         />
       )}
+
+      {verEnPantalla && puedeVerEnPantalla && (
+        <View style={styles.visorContainer}>
+          {tipo === "pdf" &&
+            createElement("iframe", {
+              src: url,
+              style: { width: "100%", height: "100%", border: "none" },
+              title: material.titulo,
+            })}
+          {tipo === "video" &&
+            createElement("video", {
+              src: url,
+              controls: true,
+              style: { width: "100%", height: "100%", backgroundColor: "black" },
+            })}
+          {tipo === "audio" &&
+            createElement("audio", {
+              src: url,
+              controls: true,
+              style: { width: "100%", marginTop: 8 },
+            })}
+          {tipo === "imagen" &&
+            createElement("img", {
+              src: url,
+              style: { width: "100%", height: "100%", objectFit: "contain" },
+            })}
+          {tipo === "otro" && (
+            <View style={styles.visorNoDisponible}>
+              <Ionicons
+                name="document-outline"
+                size={22}
+                color={ColoresApp.textoSecundario}
+              />
+              <Text style={styles.visorNoDisponibleTexto}>
+                Este tipo de archivo no se puede previsualizar aquí. Usa
+                &quot;Abrir en pestaña nueva&quot;.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 };
@@ -102,18 +185,13 @@ const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
 export default function DocumentosAspiranteScreen() {
   const router = useRouter();
   const [materiales, setMateriales] = useState<Record<string, any>[]>([]);
-  const [urlGuia, setUrlGuia] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const [listaMateriales, guia] = await Promise.all([
-        obtenerMaterialesEstudio(),
-        obtenerUrlGuiaEstudio(),
-      ]);
+      const listaMateriales = await obtenerMaterialesEstudio();
       setMateriales(listaMateriales);
-      setUrlGuia(guia);
     } finally {
       setCargando(false);
     }
@@ -156,52 +234,6 @@ export default function DocumentosAspiranteScreen() {
             <RefreshControl refreshing={cargando} onRefresh={cargar} />
           }
         >
-          <Text style={styles.seccionLabel}>Guía oficial</Text>
-          <View style={styles.guiaCard}>
-            <View style={styles.guiaFilaSuperior}>
-              <View style={styles.guiaIconoContainer}>
-                <Ionicons name="book-outline" color="white" size={22} />
-              </View>
-              <View
-                style={[
-                  styles.chipEstado,
-                  urlGuia ? styles.chipEstadoOk : styles.chipEstadoPendiente,
-                ]}
-              >
-                <Ionicons
-                  name={urlGuia ? "checkmark-circle" : "time-outline"}
-                  size={12}
-                  color={urlGuia ? ColoresApp.exito : ColoresApp.advertencia}
-                />
-                <Text
-                  style={[
-                    styles.chipEstadoTexto,
-                    { color: urlGuia ? ColoresApp.exito : ColoresApp.advertencia },
-                  ]}
-                >
-                  {urlGuia ? "Disponible" : "Próximamente"}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.tituloGuia}>Guía de estudio 2026</Text>
-            <Text style={styles.subtituloGuia}>
-              {urlGuia
-                ? "Material oficial para prepararte para el examen de admisión."
-                : "Aún no hay una guía publicada. En cuanto esté lista aparecerá aquí."}
-            </Text>
-
-            {!!urlGuia && (
-              <Pressable
-                style={styles.botonGuia}
-                onPress={() => Linking.openURL(urlGuia)}
-              >
-                <Ionicons name="download-outline" size={15} color="white" />
-                <Text style={styles.textoBotonGuia}>Descargar PDF</Text>
-              </Pressable>
-            )}
-          </View>
-
           <Text style={styles.seccionLabel}>Materiales de estudio</Text>
           {materiales.length === 0 ? (
             <View style={styles.emptyState}>
@@ -253,68 +285,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 10,
   },
-
-  // --- Guía de estudio ---
-  guiaCard: {
-    backgroundColor: "white",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: ColoresApp.borde,
-    padding: 18,
-    marginBottom: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
-  },
-  guiaFilaSuperior: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  guiaIconoContainer: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: ColoresApp.primario,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chipEstado: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  chipEstadoOk: { backgroundColor: ColoresApp.exitoFondo },
-  chipEstadoPendiente: { backgroundColor: "#FDF3E1" },
-  chipEstadoTexto: { fontSize: 11, fontWeight: "700" },
-  tituloGuia: {
-    fontWeight: "800",
-    fontSize: 16,
-    color: ColoresApp.oscuro,
-  },
-  subtituloGuia: {
-    fontSize: 12.5,
-    color: ColoresApp.textoSecundario,
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  botonGuia: {
-    marginTop: 14,
-    backgroundColor: ColoresApp.primario,
-    borderRadius: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  textoBotonGuia: { color: "white", fontWeight: "700", fontSize: 13.5 },
 
   // --- Materiales ---
   materialCard: {
@@ -377,16 +347,43 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: ColoresApp.primarioFondo,
   },
+  botonVerMaterialActivo: {
+    backgroundColor: ColoresApp.primario,
+  },
   textoBotonVerMaterial: {
     color: ColoresApp.primario,
     fontWeight: "700",
     fontSize: 12,
+  },
+  textoBotonVerMaterialActivo: {
+    color: "white",
   },
   materialImagenPreview: {
     width: "100%",
     height: 150,
     borderRadius: 12,
     marginTop: 10,
+  },
+  visorContainer: {
+    marginTop: 12,
+    height: 480,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
+    backgroundColor: "#F4F4F6",
+  },
+  visorNoDisponible: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+    gap: 8,
+  },
+  visorNoDisponibleTexto: {
+    textAlign: "center",
+    fontSize: 12.5,
+    color: ColoresApp.textoSecundario,
   },
 
   // --- Estado vacío ---

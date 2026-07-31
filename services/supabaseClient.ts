@@ -18,6 +18,10 @@ const authStorage =
       : undefined
     : AsyncStorage;
 
+// Exportados para poder armar peticiones manuales (p.ej. subida con progreso
+// vía XMLHttpRequest a una URL firmada, que el SDK de supabase-js no soporta).
+export { SUPABASE_URL, SUPABASE_ANON_KEY };
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: authStorage,

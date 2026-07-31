@@ -260,41 +260,73 @@ export default function PantallaPerfilAspirante() {
   useEffect(() => {
     if (!aspirante.id) return;
 
-    const canal = supabase
-      .channel(`asistencia-aspirante-${aspirante.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "asistencias",
-          filter: `aspirante_id=eq.${aspirante.id}`,
-        },
-        (payload) => {
-          console.log("[Notif] evento realtime recibido", payload);
-          setAsistenciaModalVisible(true);
-        },
-      )
-      .subscribe((estado) => {
-        console.log("[Notif] estado de suscripción realtime:", estado);
-      });
+    let cancelado = false;
 
-    canalAsistenciaRef.current = canal;
+    const iniciarCanal = async () => {
+      // Defensa contra condición de carrera: `supabase.removeChannel` es
+      // asíncrono (primero hace unsubscribe y solo después de resolver esa
+      // promesa lo quita de la lista interna de canales). Si este efecto
+      // se vuelve a ejecutar antes de que termine esa limpieza (navegación
+      // rápida, remounts, Fast Refresh, doble efecto de React en dev),
+      // `supabase.channel(mismoNombre)` regresa el canal VIEJO —que ya
+      // está suscrito— y el `.on(...)` de abajo truena con:
+      // "cannot add postgres_changes callbacks ... after subscribe()".
+      // Por eso, antes de crear el canal nuevo, nos aseguramos de que
+      // cualquier canal previo con el mismo topic ya esté completamente
+      // removido.
+      const topic = `realtime:asistencia-aspirante-${aspirante.id}`;
+      const canalPrevio = supabase
+        .getChannels()
+        .find((c) => c.topic === topic);
+      if (canalPrevio) {
+        console.log(
+          "[Notif] removiendo canal realtime previo antes de recrear",
+          aspirante.id,
+        );
+        try {
+          await supabase.removeChannel(canalPrevio);
+        } catch {
+          // Si falla la remoción igual seguimos: mejor intentar crear
+          // el canal nuevo que quedarnos sin escucha en tiempo real.
+        }
+      }
+
+      if (cancelado) return;
+
+      const canal = supabase
+        .channel(`asistencia-aspirante-${aspirante.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "asistencias",
+            filter: `aspirante_id=eq.${aspirante.id}`,
+          },
+          (payload) => {
+            console.log("[Notif] evento realtime recibido", payload);
+            setAsistenciaModalVisible(true);
+          },
+        )
+        .subscribe((estado) => {
+          console.log("[Notif] estado de suscripción realtime:", estado);
+        });
+
+      canalAsistenciaRef.current = canal;
+    };
+
+    iniciarCanal();
 
     return () => {
-      if (canalAsistenciaRef.current) {
+      cancelado = true;
+      const canalActual = canalAsistenciaRef.current;
+      canalAsistenciaRef.current = null;
+      if (canalActual) {
         console.log(
           "[Notif] desuscribiendo canal realtime para aspirante",
           aspirante.id,
         );
-        supabase
-          .removeChannel(canalAsistenciaRef.current)
-          .then(() => {
-            canalAsistenciaRef.current = null;
-          })
-          .catch(() => {
-            canalAsistenciaRef.current = null;
-          });
+        supabase.removeChannel(canalActual).catch(() => {});
       }
     };
   }, [aspirante.id]);

@@ -20,10 +20,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { obtenerAspirantePorId } from "@/services/aspirantesServicio";
 import { finalizarExamen, guardarRespuesta } from "@/services/examenServicio";
 import { obtenerPreguntas } from "@/services/preguntasExamenesServicio";
 import { obtenerSesionAspirante } from "@/services/sesionServicio";
@@ -58,12 +60,19 @@ type Aspirante = {
   carreraNombre: string;
 };
 
+// Ancho a partir del cual consideramos que estamos en tablet/computadora y
+// le damos más aire al contenido (en vez de dejarlo apretado en una columna
+// angosta como en celular).
+const BP_ESCRITORIO = 900;
+
 // ========================================================================
 // PANTALLA PRINCIPAL DEL EXAMEN
 // ========================================================================
 
 export default function PantallaExamen() {
   const router = useRouter();
+  const { width: anchoPantalla } = useWindowDimensions();
+  const esEscritorio = anchoPantalla >= BP_ESCRITORIO;
   const { aspirante: aspiranteString } = useLocalSearchParams<{
     aspirante?: string;
   }>();
@@ -85,6 +94,8 @@ export default function PantallaExamen() {
   );
   const [haySincronizacionPendiente, setHaySincronizacionPendiente] =
     useState(false);
+  const [iniciado, setIniciado] = useState(false);
+  const [aceptoProtocolo, setAceptoProtocolo] = useState(false);
 
   const intentosSalida = useRef(0);
   const salioEn = useRef<number | null>(null);
@@ -153,6 +164,27 @@ export default function PantallaExamen() {
           setAspirante(aspiranteActual);
         }
 
+        // Verificación de seguridad contra el servidor (no contra datos en
+        // caché ni contra lo que haya en AsyncStorage): si el aspirante ya
+        // terminó su examen o está en revisión, no lo dejamos entrar de
+        // nuevo aunque haya llegado aquí directamente (botón "atrás" del
+        // navegador, URL guardada, etc.), sin depender únicamente de que
+        // el botón esté oculto en la pantalla de perfil.
+        const datosServidor = await obtenerAspirantePorId(aspiranteActual.id);
+        const estadoServidor = datosServidor?.estado;
+        if (estadoServidor === "terminado" || estadoServidor === "en_revision") {
+          await AsyncStorage.multiRemove([
+            `examen_${aspiranteActual.folio}_indice`,
+            `examen_${aspiranteActual.folio}_tiempo`,
+          ]);
+          Alert.alert(
+            "Examen ya presentado",
+            "Ya presentaste este examen. No puedes volver a intentarlo.",
+          );
+          router.replace("/perfil-aspirante");
+          return;
+        }
+
         const clave = `examen_${aspiranteActual.folio}`;
         const listaPreguntas = (await obtenerPreguntas(
           aspiranteActual.carreraId,
@@ -172,8 +204,12 @@ export default function PantallaExamen() {
         setPreguntas(listaPreguntas);
         setRespuestas(respuestasRestauradas);
         if (indiceGuardado[1]) setIndiceActual(JSON.parse(indiceGuardado[1]));
-        if (tiempoGuardado[1])
+        if (tiempoGuardado[1]) {
           setSegundosRestantes(JSON.parse(tiempoGuardado[1]));
+          // Ya había un examen en curso (p.ej. se recargó la página):
+          // saltamos la pantalla de instrucciones directo a la pregunta.
+          setIniciado(true);
+        }
       } catch {
         Alert.alert("Error", "No se pudieron cargar las preguntas del examen.");
       } finally {
@@ -188,7 +224,7 @@ export default function PantallaExamen() {
 
   // --- Temporizador ---
   useEffect(() => {
-    if (cargando || enviado) return;
+    if (cargando || enviado || !iniciado) return;
 
     const timer = setInterval(() => {
       setSegundosRestantes((prev) => {
@@ -207,7 +243,7 @@ export default function PantallaExamen() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [cargando, enviado, claveAlumno]);
+  }, [cargando, enviado, iniciado, claveAlumno]);
 
   // --- Detección de conexión a internet ---
   // Solo aplica en web (donde el navegador expone estos eventos). Sirve
@@ -236,7 +272,7 @@ export default function PantallaExamen() {
   // de que el aspirante salió de la aplicación.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (enviado) return;
+      if (enviado || !iniciado) return;
 
       if (nextAppState === "background" || nextAppState === "inactive") {
         salioEn.current = Date.now();
@@ -264,7 +300,7 @@ export default function PantallaExamen() {
     });
 
     return () => subscription.remove();
-  }, [enviado]);
+  }, [enviado, iniciado]);
 
   const claveePendientes = `${claveAlumno}_pendientes`;
 
@@ -384,7 +420,7 @@ export default function PantallaExamen() {
             : "terminado";
 
         try {
-          await finalizarExamen({
+          const guardadoExitoso = await finalizarExamen({
             idAspirante: aspirante.id,
             aciertos,
             total: preguntas.length,
@@ -393,6 +429,13 @@ export default function PantallaExamen() {
             modoCalificacion,
             fechaPublicacion,
           });
+
+          if (!guardadoExitoso) {
+            // No lo tratamos como enviado: si seguimos de largo aquí (como
+            // pasaba antes) el examen nunca queda marcado como terminado
+            // en el servidor y el aspirante puede volver a presentarlo.
+            throw new Error("No se pudo guardar el resultado en el servidor.");
+          }
 
           // Limpiar AsyncStorage
           const keys = preguntas.map((_, i) => `${claveAlumno}_p${i}`);
@@ -468,6 +511,20 @@ export default function PantallaExamen() {
     return <ErrorCargaPreguntas />;
   }
 
+  if (!iniciado) {
+    return (
+      <PantallaInstrucciones
+        aspirante={aspirante}
+        totalPreguntas={preguntas.length}
+        duracionMinutos={Math.round(segundosRestantes / 60)}
+        acepto={aceptoProtocolo}
+        onCambiarAcepto={setAceptoProtocolo}
+        onIniciar={() => setIniciado(true)}
+        esEscritorio={esEscritorio}
+      />
+    );
+  }
+
   const pregunta = preguntas[indiceActual];
   const totalRespondidas = respuestas.filter(Boolean).length;
   const tiempoFormateado = `${Math.floor(segundosRestantes / 60)
@@ -485,10 +542,22 @@ export default function PantallaExamen() {
         indiceActual={indiceActual}
         totalPreguntas={preguntas.length}
         totalRespondidas={totalRespondidas}
+        esEscritorio={esEscritorio}
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.preguntaContainer}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContainer,
+          esEscritorio && styles.scrollContainerEscritorio,
+        ]}
+      >
+        <View
+          style={[
+            styles.preguntaContainer,
+            esEscritorio && styles.preguntaContainerEscritorio,
+          ]}
+        >
+          <View style={styles.preguntaAcento} />
           <View style={styles.badgesContainer}>
             <Badge color={ColoresApp.primario} textColor="white">
               Pregunta {indiceActual + 1}
@@ -576,6 +645,7 @@ export default function PantallaExamen() {
           onAnterior={() => irAPregunta(indiceActual - 1)}
           onSiguiente={() => irAPregunta(indiceActual + 1)}
           onEnviar={() => enviarExamen(false)}
+          esEscritorio={esEscritorio}
         />
       </View>
     </View>
@@ -586,6 +656,190 @@ export default function PantallaExamen() {
 
 const SizedBox = ({ height }: { height: number }) => (
   <View style={{ height }} />
+);
+
+const PantallaInstrucciones = ({
+  aspirante,
+  totalPreguntas,
+  duracionMinutos,
+  acepto,
+  onCambiarAcepto,
+  onIniciar,
+  esEscritorio,
+}: {
+  aspirante: Aspirante;
+  totalPreguntas: number;
+  duracionMinutos: number;
+  acepto: boolean;
+  onCambiarAcepto: (valor: boolean) => void;
+  onIniciar: () => void;
+  esEscritorio?: boolean;
+}) => (
+  <SafeAreaView style={styles.instruccionesContainer}>
+    <LinearGradient
+      colors={["#EEF1F8", "#E3E9FA", "#EDF0FA"]}
+      style={StyleSheet.absoluteFill}
+    />
+    {/* Formas decorativas de fondo, solo estéticas */}
+    <View style={styles.instruccionesBlobUno} pointerEvents="none" />
+    <View style={styles.instruccionesBlobDos} pointerEvents="none" />
+
+    <ScrollView
+      contentContainerStyle={[
+        styles.instruccionesScroll,
+        esEscritorio && styles.instruccionesScrollEscritorio,
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View
+        style={[
+          styles.instruccionesTarjeta,
+          esEscritorio && styles.instruccionesTarjetaEscritorio,
+        ]}
+      >
+        {/* --- Franja lateral institucional (ícono + texto vertical + cámara) --- */}
+        <LinearGradient
+          colors={[ColoresApp.primario, ColoresApp.oscuro]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.instruccionesSidebar,
+            esEscritorio && styles.instruccionesSidebarEscritorio,
+          ]}
+        >
+          <View style={styles.instruccionesSidebarIconoCircle}>
+            <Ionicons name="shield-checkmark" color="white" size={14} />
+          </View>
+          <View style={styles.instruccionesSidebarTextoWrap}>
+            <Text
+              style={styles.instruccionesSidebarTexto}
+              numberOfLines={1}
+            >
+              INSTITUCIÓN EDUCATIVA SUPERIOR
+            </Text>
+          </View>
+          <View style={styles.instruccionesSidebarCamaraCircle}>
+            <Ionicons name="videocam" color="white" size={14} />
+          </View>
+        </LinearGradient>
+
+        {/* --- Contenido --- */}
+        <View
+          style={[
+            styles.instruccionesContenido,
+            esEscritorio && styles.instruccionesContenidoEscritorio,
+          ]}
+        >
+          <View style={styles.instruccionesEncabezado}>
+            <View style={styles.instruccionesConvocatoriaBadge}>
+              <Text style={styles.instruccionesConvocatoriaTexto}>
+                CONVOCATORIA 2026
+              </Text>
+            </View>
+            <Text style={styles.instruccionesFolio}>
+              ID: {aspirante.folio}
+            </Text>
+          </View>
+
+          <Text style={styles.instruccionesTitulo}>
+            Examen de Admisión:{"\n"}
+            <Text style={{ color: ColoresApp.primario }}>
+              {aspirante.carreraNombre}
+            </Text>
+          </Text>
+
+          <View style={styles.instruccionesDatosFila}>
+            <View style={styles.instruccionesDatoCard}>
+              <Ionicons
+                name="help-circle-outline"
+                size={18}
+                color={ColoresApp.primario}
+              />
+              <Text style={styles.instruccionesDatoNumero}>
+                {totalPreguntas}
+              </Text>
+              <Text style={styles.instruccionesDatoEtiqueta}>Preguntas</Text>
+            </View>
+            <View style={styles.instruccionesDatoCard}>
+              <Ionicons
+                name="time-outline"
+                size={18}
+                color={ColoresApp.primario}
+              />
+              <Text style={styles.instruccionesDatoNumero}>
+                {duracionMinutos}
+              </Text>
+              <Text style={styles.instruccionesDatoEtiqueta}>Minutos</Text>
+            </View>
+          </View>
+
+          <Text style={styles.instruccionesProtocoloTitulo}>
+            Protocolo de seguridad
+          </Text>
+
+          <View style={styles.instruccionesProtocoloItem}>
+            <Ionicons name="close-circle-outline" size={18} color="#DC2626" />
+            <Text style={styles.instruccionesProtocoloTexto}>
+              <Text style={{ fontWeight: "700" }}>
+                Navegación restringida:{" "}
+              </Text>
+              cambiar de ventana o pestaña durante el examen resultará en la
+              anulación automática del intento.
+            </Text>
+          </View>
+          <View style={styles.instruccionesProtocoloItem}>
+            <Ionicons
+              name="camera-outline"
+              size={18}
+              color={ColoresApp.primario}
+            />
+            <Text style={styles.instruccionesProtocoloTexto}>
+              <Text style={{ fontWeight: "700" }}>
+                Capturas de pantalla:{" "}
+              </Text>
+              el sistema registra intentos de salir de la app o cambiar de
+              pestaña durante tu intento.
+            </Text>
+          </View>
+
+          <Pressable
+            style={styles.instruccionesCheckFila}
+            onPress={() => onCambiarAcepto(!acepto)}
+          >
+            <View
+              style={[
+                styles.instruccionesCheckbox,
+                acepto && styles.instruccionesCheckboxActivo,
+              ]}
+            >
+              {acepto && (
+                <Ionicons name="checkmark" size={14} color="white" />
+              )}
+            </View>
+            <Text style={styles.instruccionesCheckTexto}>
+              He leído las instrucciones y acepto los términos de seguridad.
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.instruccionesBoton,
+              !acepto && styles.instruccionesBotonDeshabilitado,
+            ]}
+            disabled={!acepto}
+            onPress={onIniciar}
+          >
+            <Text style={styles.instruccionesBotonTexto}>Iniciar Examen</Text>
+            <Ionicons name="arrow-forward" size={17} color="white" />
+          </Pressable>
+
+          <Text style={styles.instruccionesSoporteTexto}>
+            ¿Problemas técnicos? Contacta a Vinculación.
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
+  </SafeAreaView>
 );
 
 const CargandoExamen = () => (
@@ -620,10 +874,16 @@ const HeaderExamen = ({
   indiceActual,
   totalPreguntas,
   totalRespondidas,
+  esEscritorio,
 }: any) => (
   <LinearGradient colors={["#040D2A", "#0B2A55"]} style={styles.header}>
     <SafeAreaView>
-      <View style={styles.headerContent}>
+      <View
+        style={[
+          styles.headerContent,
+          esEscritorio && styles.headerContentEscritorio,
+        ]}
+      >
         <View style={styles.headerTopRow}>
           <View style={styles.carreraBadge}>
             <Ionicons
@@ -747,8 +1007,14 @@ const BotonesNavegacion = ({
   onAnterior,
   onSiguiente,
   onEnviar,
+  esEscritorio,
 }: any) => (
-  <View style={styles.botonesNavContainer}>
+  <View
+    style={[
+      styles.botonesNavContainer,
+      esEscritorio && styles.botonesNavContainerEscritorio,
+    ]}
+  >
     <Pressable
       disabled={esPrimera}
       style={[styles.botonNav, esPrimera && styles.botonNavDisabled]}
@@ -786,7 +1052,7 @@ const BotonesNavegacion = ({
 // --- ESTILOS ---
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F7FA" },
+  container: { flex: 1, backgroundColor: "#EEF1F8" },
   centered: {
     flex: 1,
     justifyContent: "center",
@@ -810,15 +1076,21 @@ const styles = StyleSheet.create({
     backgroundColor: ColoresApp.primario,
     paddingHorizontal: 24,
     paddingVertical: 14,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   botonTexto: { color: "white", fontWeight: "bold" },
   header: {
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    boxShadow: "0 4px 8px #0000001A",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    boxShadow: "0 6px 16px #0000002A",
   },
   headerContent: { padding: 16, paddingTop: 0 },
+  headerContentEscritorio: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
+    paddingHorizontal: 8,
+  },
   headerTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -859,32 +1131,49 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
   progressBarBackground: {
-    height: 5,
+    height: 6,
     backgroundColor: "rgba(255,255,255,0.12)",
     borderRadius: 3,
     overflow: "hidden",
   },
-  progressBarFill: { height: "100%", backgroundColor: "#4ADE80" },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: "#4ADE80",
+    borderRadius: 3,
+  },
   progressTextContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 7,
   },
   progressTexto: {
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(255,255,255,0.55)",
     fontSize: 10,
-    fontWeight: "500",
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
-  scrollContainer: { padding: 16, alignItems: "center" },
+  scrollContainer: { padding: 16, paddingTop: 22, alignItems: "center" },
+  scrollContainerEscritorio: { paddingTop: 32, paddingBottom: 32 },
   preguntaContainer: {
     width: "100%",
     maxWidth: 760,
     backgroundColor: "white",
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 20,
+    padding: 22,
     borderWidth: 1,
-    borderColor: "#EEEEEE",
-    boxShadow: "0 2px 12px #0000000A",
+    borderColor: "#ECEDF3",
+    boxShadow: "0 8px 24px #0B1C300F",
+    position: "relative",
+    overflow: "hidden",
+  },
+  preguntaContainerEscritorio: { maxWidth: 860, padding: 32 },
+  preguntaAcento: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: ColoresApp.primario,
   },
   badgesContainer: {
     flexDirection: "row",
@@ -892,49 +1181,48 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: "center",
   },
-  badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
-  badgeTexto: { fontSize: 10, fontWeight: "bold" },
+  badge: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
+  badgeTexto: { fontSize: 10, fontWeight: "bold", letterSpacing: 0.2 },
   preguntaTexto: {
-    fontSize: 16,
-    fontWeight: "600",
-    lineHeight: 24,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 25,
     color: "#0B1C30",
-    marginTop: 14,
-    marginBottom: 18,
+    marginTop: 16,
+    marginBottom: 20,
   },
   opcionContainer: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderWidth: 1,
+    padding: 14,
+    borderWidth: 1.5,
     borderColor: "#E5E7EB",
-    borderRadius: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 10,
     backgroundColor: "white",
   },
   opcionSeleccionada: {
     borderColor: ColoresApp.primario,
-    borderWidth: 1.5,
-    backgroundColor: "#E6F1FB",
-    boxShadow: `0 2px 8px ${ColoresApp.primario}1A`,
+    backgroundColor: "#EAF2FC",
+    boxShadow: `0 4px 12px ${ColoresApp.primario}22`,
   },
   opcionLetraContainer: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",
   },
-  opcionLetraTexto: { fontSize: 11, fontWeight: "600", color: "grey" },
+  opcionLetraTexto: { fontSize: 12, fontWeight: "700", color: "#6B7280" },
   opcionTexto: {
     flex: 1,
-    marginLeft: 12,
-    fontSize: 13,
-    lineHeight: 18,
+    marginLeft: 14,
+    fontSize: 13.5,
+    lineHeight: 19,
     color: "#3C3C43",
   },
-  opcionTextoSeleccionado: { color: "#0B1C30", fontWeight: "600" },
+  opcionTextoSeleccionado: { color: "#0B1C30", fontWeight: "700" },
   guardadoBadge: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   guardadoTexto: {
     color: "green",
@@ -949,9 +1237,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF7E0",
     borderWidth: 1,
     borderColor: "#F0D590",
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 10,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
   },
   conexionBannerTexto: {
     flex: 1,
@@ -964,23 +1252,25 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "#E5E7EB",
     alignItems: "center",
+    boxShadow: "0 -4px 12px #0B1C300A",
   },
-  puntoNav: { height: 7, borderRadius: 4, marginHorizontal: 3 },
+  puntoNav: { height: 8, borderRadius: 5, marginHorizontal: 3 },
   botonesNavContainer: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
     width: "100%",
     maxWidth: 760,
   },
+  botonesNavContainerEscritorio: { maxWidth: 860 },
   botonNav: {
     flex: 1,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#C6C6CE",
+    paddingVertical: 15,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#D7D9E0",
     gap: 6,
   },
   botonNavDisabled: { opacity: 0.5 },
@@ -988,7 +1278,220 @@ const styles = StyleSheet.create({
   botonNavSiguiente: {
     backgroundColor: ColoresApp.primario,
     borderColor: ColoresApp.primario,
+    boxShadow: `0 6px 16px ${ColoresApp.primario}40`,
   },
-  botonNavEnviar: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
+  botonNavEnviar: {
+    backgroundColor: "#16A34A",
+    borderColor: "#16A34A",
+    boxShadow: "0 6px 16px #16A34A40",
+  },
   botonNavTextoPrincipal: { color: "white", fontWeight: "bold" },
+
+  // --- Pantalla de instrucciones (antes de iniciar el examen) ---
+  instruccionesContainer: { flex: 1, backgroundColor: "#EEF1F8" },
+  instruccionesBlobUno: {
+    position: "absolute",
+    top: -80,
+    right: -60,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: ColoresApp.primario,
+    opacity: 0.08,
+  },
+  instruccionesBlobDos: {
+    position: "absolute",
+    bottom: -100,
+    left: -80,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: ColoresApp.oscuro,
+    opacity: 0.06,
+  },
+  instruccionesScroll: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  instruccionesScrollEscritorio: { padding: 40 },
+  instruccionesTarjeta: {
+    flexDirection: "row",
+    width: "100%",
+    maxWidth: 480,
+    backgroundColor: "white",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#ECEDF3",
+    boxShadow: "0 12px 32px #0B1C3018",
+    overflow: "hidden",
+  },
+  instruccionesTarjetaEscritorio: { maxWidth: 620 },
+  instruccionesSidebar: {
+    width: 34,
+    backgroundColor: ColoresApp.primario,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 18,
+  },
+  instruccionesSidebarEscritorio: { width: 44, paddingVertical: 26 },
+  instruccionesSidebarIconoCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instruccionesSidebarTextoWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instruccionesSidebarTexto: {
+    width: 220,
+    textAlign: "center",
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 9.5,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    transform: [{ rotate: "-90deg" }],
+  },
+  instruccionesSidebarCamaraCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instruccionesContenido: {
+    flex: 1,
+    padding: 24,
+  },
+  instruccionesContenidoEscritorio: { padding: 34 },
+  instruccionesEncabezado: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  instruccionesConvocatoriaBadge: {
+    backgroundColor: ColoresApp.primario,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  instruccionesConvocatoriaTexto: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  instruccionesFolio: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9CA3AF",
+  },
+  instruccionesTitulo: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#0B1C30",
+    lineHeight: 27,
+    marginBottom: 16,
+  },
+  instruccionesDatosFila: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  instruccionesDatoCard: {
+    flex: 1,
+    backgroundColor: "#F5F6FA",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    gap: 2,
+  },
+  instruccionesDatoNumero: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0B1C30",
+    marginTop: 2,
+  },
+  instruccionesDatoEtiqueta: {
+    fontSize: 10.5,
+    color: "#9CA3AF",
+    fontWeight: "600",
+  },
+  instruccionesProtocoloTitulo: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0B1C30",
+    marginBottom: 10,
+  },
+  instruccionesProtocoloItem: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+    alignItems: "flex-start",
+  },
+  instruccionesProtocoloTexto: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#3C3C43",
+  },
+  instruccionesCheckFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 18,
+  },
+  instruccionesCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: "#C6C6CE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instruccionesCheckboxActivo: {
+    backgroundColor: ColoresApp.primario,
+    borderColor: ColoresApp.primario,
+  },
+  instruccionesCheckTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: "#3C3C43",
+    lineHeight: 17,
+  },
+  instruccionesBoton: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: ColoresApp.primario,
+    borderRadius: 14,
+    paddingVertical: 15,
+    boxShadow: `0 8px 20px ${ColoresApp.primario}40`,
+  },
+  instruccionesBotonDeshabilitado: {
+    backgroundColor: "#B8C4D9",
+    boxShadow: "none",
+  },
+  instruccionesBotonTexto: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  instruccionesSoporteTexto: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 14,
+  },
 });

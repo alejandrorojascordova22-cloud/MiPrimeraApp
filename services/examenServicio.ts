@@ -75,37 +75,45 @@ export async function finalizarExamen({
     modo_calificacion: modoCalificacion,
     fecha_publicacion_calificacion: fechaPublicacion,
   };
-  try {
-    const { error } = await supabase
-      .from('aspirantes')
-      .update(datos)
-      .eq('id', idAspirante);
-    if (error) throw error;
-    return true;
-  } catch (e: any) {
-    const mensaje = String(e?.message ?? '');
-    const match = mensaje.match(/Could not find the '([^']+)' column/);
-    if (match && match[1] in datos) {
-      console.warn(
-        `finalizarExamen: falta la columna "${match[1]}" en "aspirantes" ` +
-          '(agrégala con ALTER TABLE). Reintentando sin ella...'
-      );
-      delete datos[match[1]];
-      try {
-        const { error } = await supabase
-          .from('aspirantes')
-          .update(datos)
-          .eq('id', idAspirante);
-        if (error) throw error;
-        return true;
-      } catch (e2) {
-        console.warn('Error en finalizarExamen (reintento):', e2);
-        return false;
+
+  // Reintenta quitando, una por una, cualquier columna que Supabase
+  // reporte como inexistente en el esquema (PGRST204 / "Could not find
+  // the 'x' column"). Antes solo se manejaba UNA columna faltante y se
+  // reintentaba una sola vez: si a la tabla `aspirantes` le faltaba más
+  // de una columna (p.ej. modo_calificacion Y fecha_publicacion_calificacion
+  // a la vez), el segundo intento fallaba igual, finalizarExamen devolvía
+  // false, pero el resto del flujo de envío del examen no revisaba ese
+  // valor de retorno y continuaba como si el examen sí se hubiera
+  // guardado como terminado — dejando al aspirante con estado "pendiente"
+  // en la base de datos y permitiéndole presentar el examen otra vez.
+  const MAX_INTENTOS = 5;
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    try {
+      const { error } = await supabase
+        .from('aspirantes')
+        .update(datos)
+        .eq('id', idAspirante);
+      if (error) throw error;
+      return true;
+    } catch (e: any) {
+      const mensaje = String(e?.message ?? '');
+      const match = mensaje.match(/Could not find the '([^']+)' column/);
+      if (match && match[1] in datos) {
+        console.warn(
+          `finalizarExamen: falta la columna "${match[1]}" en "aspirantes" ` +
+            '(agrégala con ALTER TABLE). Reintentando sin ella...',
+        );
+        delete datos[match[1]];
+        continue;
       }
+      console.warn('Error en finalizarExamen:', e);
+      return false;
     }
-    console.warn('Error en finalizarExamen:', e);
-    return false;
   }
+  console.warn(
+    'finalizarExamen: se agotaron los reintentos por columnas faltantes.',
+  );
+  return false;
 }
 
 /**

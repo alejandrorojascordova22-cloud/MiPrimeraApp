@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase, SUPABASE_ANON_KEY } from './supabaseClient';
 
 /**
  * Materiales de estudio (documentos, audio, imagen, video, etc. subidos por
@@ -35,6 +35,113 @@ export const ETIQUETAS_POR_TIPO_MATERIAL: Record<string, string> = {
 function rutaUnicaMaterial(nombreOriginal: string): string {
   const limpio = nombreOriginal.replace(/[^\w.\-]/g, '_');
   return `${Date.now()}_${limpio}`;
+}
+
+// =====================================================================
+// Subida con progreso (% subido, MB subidos/total, tiempo restante)
+// =====================================================================
+
+export interface ProgresoSubida {
+  cargadoBytes: number;
+  totalBytes: number;
+  porcentaje: number; // 0-100
+  velocidadBytesPorSeg: number;
+  segundosRestantesEstimados: number | null;
+}
+
+export type CallbackProgresoSubida = (progreso: ProgresoSubida) => void;
+
+/**
+ * Sube un archivo al storage de Supabase reportando el avance real
+ * (evento `progress` de XMLHttpRequest) para poder mostrar una barra de
+ * progreso con MB subidos/total y tiempo restante estimado.
+ *
+ * El SDK de supabase-js no expone progreso en `storage.upload`, así que
+ * usamos una URL de subida firmada (`createSignedUploadUrl`) y hacemos la
+ * petición nosotros mismos con XMLHttpRequest, que sí notifica el avance.
+ *
+ * Si no hay callback de progreso o el entorno no tiene XMLHttpRequest
+ * (por ejemplo, ciertos contextos nativos), se usa la subida normal del SDK.
+ */
+async function subirBytesConProgreso(
+  bucket: string,
+  ruta: string,
+  bytes: Blob | ArrayBuffer,
+  mimeType: string | undefined,
+  onProgreso?: CallbackProgresoSubida
+): Promise<void> {
+  if (!onProgreso || typeof XMLHttpRequest === 'undefined') {
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(ruta, bytes, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    return;
+  }
+
+  const { data: firmado, error: errorFirma } = await supabase.storage
+    .from(bucket)
+    .createSignedUploadUrl(ruta);
+  if (errorFirma || !firmado) {
+    throw errorFirma ?? new Error('No se pudo generar la URL de subida.');
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', firmado.signedUrl, true);
+    xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
+    xhr.setRequestHeader('x-upsert', 'true');
+    if (mimeType) xhr.setRequestHeader('Content-Type', mimeType);
+
+    const inicioMs = Date.now();
+    xhr.upload.onprogress = (evento) => {
+      if (!evento.lengthComputable) return;
+      const segundosTranscurridos = (Date.now() - inicioMs) / 1000;
+      const velocidad =
+        segundosTranscurridos > 0 ? evento.loaded / segundosTranscurridos : 0;
+      const restanteBytes = evento.total - evento.loaded;
+      onProgreso({
+        cargadoBytes: evento.loaded,
+        totalBytes: evento.total,
+        porcentaje: (evento.loaded / evento.total) * 100,
+        velocidadBytesPorSeg: velocidad,
+        segundosRestantesEstimados:
+          velocidad > 0 ? restanteBytes / velocidad : null,
+      });
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Error al subir el archivo (status ${xhr.status}).`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Error de red al subir el archivo.'));
+    xhr.send(bytes as any);
+  });
+}
+
+/** Da formato legible (KB/MB/GB) a un tamaño en bytes. */
+export function formatearBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  const unidades = ['KB', 'MB', 'GB'];
+  let valor = bytes / 1024;
+  let i = 0;
+  while (valor >= 1024 && i < unidades.length - 1) {
+    valor /= 1024;
+    i++;
+  }
+  return `${valor.toFixed(valor < 10 ? 1 : 0)} ${unidades[i]}`;
+}
+
+/** Da formato legible (seg/min) a una duración estimada. */
+export function formatearTiempoRestante(segundos: number | null): string {
+  if (segundos == null || !Number.isFinite(segundos)) return 'calculando…';
+  if (segundos < 1) return 'menos de 1 seg';
+  if (segundos < 60) return `${Math.round(segundos)} seg`;
+  const minutos = Math.floor(segundos / 60);
+  const seg = Math.round(segundos % 60);
+  return `${minutos} min ${seg} seg`;
 }
 
 /** Lista todos los materiales de estudio, más recientes primero. */
@@ -80,6 +187,7 @@ interface SubirMaterialEstudioParams {
   materia?: string;
   aplicaATodas?: boolean;
   carrerasIds?: number[];
+  onProgreso?: CallbackProgresoSubida;
 }
 
 /**
@@ -96,13 +204,17 @@ export async function subirMaterialEstudio({
   materia,
   aplicaATodas = true,
   carrerasIds = [],
+  onProgreso,
 }: SubirMaterialEstudioParams): Promise<Record<string, any> | null> {
   try {
     const rutaStorage = rutaUnicaMaterial(nombreArchivoOriginal);
-    const { error: errorUpload } = await supabase.storage
-      .from(BUCKET_MATERIALES_ESTUDIO)
-      .upload(rutaStorage, bytes, { contentType: mimeType, upsert: true });
-    if (errorUpload) throw errorUpload;
+    await subirBytesConProgreso(
+      BUCKET_MATERIALES_ESTUDIO,
+      rutaStorage,
+      bytes,
+      mimeType,
+      onProgreso
+    );
 
     const {
       data: { publicUrl: urlPublica },
@@ -146,6 +258,7 @@ interface ReemplazarArchivoMaterialParams {
   nombreArchivoOriginal: string;
   bytes: Blob | ArrayBuffer;
   mimeType?: string;
+  onProgreso?: CallbackProgresoSubida;
 }
 
 /**
@@ -157,6 +270,7 @@ export async function reemplazarArchivoMaterial({
   nombreArchivoOriginal,
   bytes,
   mimeType,
+  onProgreso,
 }: ReemplazarArchivoMaterialParams): Promise<boolean> {
   try {
     const rutaAnterior = materialActual.ruta_storage as string | undefined;
@@ -169,10 +283,13 @@ export async function reemplazarArchivoMaterial({
     }
 
     const rutaStorage = rutaUnicaMaterial(nombreArchivoOriginal);
-    const { error: errorUpload } = await supabase.storage
-      .from(BUCKET_MATERIALES_ESTUDIO)
-      .upload(rutaStorage, bytes, { contentType: mimeType, upsert: true });
-    if (errorUpload) throw errorUpload;
+    await subirBytesConProgreso(
+      BUCKET_MATERIALES_ESTUDIO,
+      rutaStorage,
+      bytes,
+      mimeType,
+      onProgreso
+    );
 
     const {
       data: { publicUrl: urlPublica },
