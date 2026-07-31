@@ -71,13 +71,22 @@ type PreguntaConRespuesta = {
 const Placeholder = ({
   icon,
   mensaje,
+  subtitulo,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   mensaje: string;
+  subtitulo?: string;
 }) => (
   <View style={styles.placeholderContainer}>
-    <Ionicons name={icon} size={64} color={ColoresApp.borde} />
-    <Text style={styles.placeholderText}>{mensaje}</Text>
+    <View style={styles.placeholderCard}>
+      <View style={styles.placeholderIconoWrap}>
+        <Ionicons name={icon} size={40} color={ColoresApp.primario} />
+      </View>
+      <Text style={styles.placeholderText}>{mensaje}</Text>
+      {subtitulo && (
+        <Text style={styles.placeholderSubtexto}>{subtitulo}</Text>
+      )}
+    </View>
   </View>
 );
 
@@ -261,6 +270,34 @@ const AspiranteCard = ({
   );
 };
 
+const InfoCard = ({
+  icon,
+  label,
+  valor,
+  color = ColoresApp.primario,
+  children,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  valor?: string;
+  color?: string;
+  children?: React.ReactNode;
+}) => (
+  <View style={styles.infoCard}>
+    <View style={[styles.infoCardIcono, { backgroundColor: `${color}18` }]}>
+      <Ionicons name={icon} size={18} color={color} />
+    </View>
+    <View style={styles.infoCardTextos}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      {valor !== undefined ? (
+        <Text style={styles.infoValor}>{valor}</Text>
+      ) : (
+        children
+      )}
+    </View>
+  </View>
+);
+
 const PerfilEvaluacionModal = ({
   visible,
   onClose,
@@ -271,53 +308,138 @@ const PerfilEvaluacionModal = ({
   onClose: () => void;
   aspirante: Aspirante | null;
   onToggleAsistencia: (aspirante: Aspirante, valor: boolean) => void;
-}) => (
-  <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-    <SafeAreaView style={{ flex: 1 }}>
-      <View style={styles.modalHeader}>
-        <Text style={styles.modalTitle}>{aspirante?.nombre}</Text>
-        <Pressable onPress={onClose}>
-          <Ionicons name="close" size={24} />
-        </Pressable>
-      </View>
-      {aspirante && (
-        <View style={{ padding: 20, gap: 16 }}>
-          <View style={styles.infoFila}>
-            <Text style={styles.infoLabel}>Folio</Text>
-            <Text style={styles.infoValor}>{aspirante.folio}</Text>
-          </View>
-          <View style={styles.infoFila}>
-            <Text style={styles.infoLabel}>Correo</Text>
-            <Text style={styles.infoValor}>{aspirante.correo || "—"}</Text>
-          </View>
-          <View style={styles.infoFila}>
-            <Text style={styles.infoLabel}>Carrera</Text>
-            <Text style={styles.infoValor}>{aspirante.carreraNombre}</Text>
-          </View>
-          <View style={styles.infoFila}>
-            <Text style={styles.infoLabel}>Estado</Text>
-            <Text style={styles.infoValor}>{aspirante.estado}</Text>
-          </View>
-          {aspirante.estado === "terminado" && aspirante.resultado != null && (
-            <View style={styles.infoFila}>
-              <Text style={styles.infoLabel}>Calificación</Text>
-              <Text style={styles.infoValor}>
-                {aspirante.resultado}% ({aspirante.aciertos ?? 0} aciertos)
-              </Text>
+}) => {
+  const tieneCalificacion =
+    aspirante?.estado === "terminado" && aspirante.resultado != null;
+  const aprobado = tieneCalificacion && (aspirante!.resultado ?? 0) >= 70;
+  const colorEstado = !aspirante
+    ? ColoresApp.primario
+    : aspirante.estado === "en_revision"
+    ? ColoresApp.advertencia
+    : aspirante.estado === "en_progreso"
+    ? ColoresApp.primario
+    : aspirante.estado === "terminado"
+    ? tieneCalificacion
+      ? aprobado
+        ? ColoresApp.exito
+        : ColoresApp.error
+      : ColoresApp.primario
+    : ColoresApp.textoSecundario;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: ColoresApp.fondo }}>
+        <LinearGradient
+          colors={[ColoresApp.oscuro, ColoresApp.oscuroClaro]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.modalHeaderGradient}
+        >
+          <Pressable onPress={onClose} style={styles.modalCerrarBoton}>
+            <Ionicons name="close" size={22} color="white" />
+          </Pressable>
+          {aspirante && (
+            <View style={styles.modalPerfilFila}>
+              <View
+                style={[
+                  styles.modalAvatar,
+                  { backgroundColor: `${colorEstado}30` },
+                ]}
+              >
+                <Text style={[styles.modalAvatarTexto, { color: "white" }]}>
+                  {aspirante.nombre[0]}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>{aspirante.nombre}</Text>
+                <Text style={styles.modalSubtitle}>
+                  Folio: {aspirante.folio}
+                </Text>
+              </View>
+              {tieneCalificacion && (
+                <View
+                  style={[
+                    styles.modalCalifBadge,
+                    { backgroundColor: `${colorEstado}25` },
+                  ]}
+                >
+                  <Text style={[styles.modalCalifTexto, { color: "white" }]}>
+                    {aspirante.resultado}%
+                  </Text>
+                </View>
+              )}
             </View>
           )}
-          <View style={styles.infoFila}>
-            <Text style={styles.infoLabel}>Asistencia registrada</Text>
-            <Switch
-              value={aspirante.asistencia}
-              onValueChange={(valor) => onToggleAsistencia(aspirante, valor)}
+        </LinearGradient>
+        {aspirante && (
+          <ScrollView
+            contentContainerStyle={styles.modalScrollContenido}
+            showsVerticalScrollIndicator={false}
+          >
+            <InfoCard
+              icon="mail-outline"
+              label="Correo"
+              valor={aspirante.correo || "—"}
             />
-          </View>
-        </View>
-      )}
-    </SafeAreaView>
-  </Modal>
-);
+            <InfoCard
+              icon="school-outline"
+              label="Carrera"
+              valor={aspirante.carreraNombre}
+            />
+            <InfoCard
+              icon="pulse-outline"
+              label="Estado"
+              valor={
+                aspirante.estado.charAt(0).toUpperCase() +
+                aspirante.estado.slice(1).replace("_", " ")
+              }
+              color={colorEstado}
+            />
+            {tieneCalificacion && (
+              <InfoCard
+                icon="ribbon-outline"
+                label="Calificación"
+                valor={`${aspirante.resultado}% (${
+                  aspirante.aciertos ?? 0
+                } aciertos)`}
+                color={colorEstado}
+              />
+            )}
+            <InfoCard
+              icon="checkmark-done-outline"
+              label="Asistencia registrada"
+              color={aspirante.asistencia ? ColoresApp.exito : ColoresApp.textoSecundario}
+            >
+              <View style={styles.asistenciaFila}>
+                <Text
+                  style={[
+                    styles.asistenciaEstadoTexto,
+                    {
+                      color: aspirante.asistencia
+                        ? ColoresApp.exito
+                        : ColoresApp.textoSecundario,
+                    },
+                  ]}
+                >
+                  {aspirante.asistencia ? "Registrada" : "Sin registrar"}
+                </Text>
+                <Switch
+                  value={aspirante.asistencia}
+                  onValueChange={(valor) => onToggleAsistencia(aspirante, valor)}
+                  trackColor={{
+                    false: ColoresApp.borde,
+                    true: ColoresApp.exito,
+                  }}
+                  thumbColor="white"
+                />
+              </View>
+            </InfoCard>
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+};
 
 const OpcionRevision = ({
   letra,
@@ -368,7 +490,9 @@ const OpcionRevision = ({
       </View>
       <Text style={styles.opcionRevisionTexto}>{texto}</Text>
       {esRespuestaAspirante && !esCorrecta && (
-        <Text style={styles.opcionRevisionEtiqueta}>Marcó esta</Text>
+        <View style={styles.opcionRevisionEtiquetaWrap}>
+          <Text style={styles.opcionRevisionEtiqueta}>Marcó esta</Text>
+        </View>
       )}
     </Pressable>
   );
@@ -388,89 +512,133 @@ const ExamenRevisionModal = ({
   preguntas: PreguntaConRespuesta[];
   cargando: boolean;
   onCorregir: (pregunta: PreguntaConRespuesta, nuevaLetra: string) => void;
-}) => (
-  <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-    <SafeAreaView style={{ flex: 1 }}>
-      <View style={styles.modalHeader}>
-        <View>
+}) => {
+  const correctas = preguntas.filter((p) => {
+    if (p.tipo === "Abierta") return false;
+    return (
+      (p.respuestaAspirante ?? "").toUpperCase() ===
+      p.respuestaCorrecta.toUpperCase()
+    );
+  }).length;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: ColoresApp.fondo }}>
+        <LinearGradient
+          colors={[ColoresApp.oscuro, ColoresApp.oscuroClaro]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.modalHeaderGradient}
+        >
+          <View style={styles.modalHeaderFilaTop}>
+            <Pressable
+              onPress={onClose}
+              style={[styles.modalCerrarBoton, { marginBottom: 0 }]}
+            >
+              <Ionicons name="close" size={22} color="white" />
+            </Pressable>
+            {!cargando && preguntas.length > 0 && (
+              <View style={styles.modalResumenBadge}>
+                <Text style={styles.modalResumenBadgeTexto}>
+                  {correctas}/{preguntas.length} correctas
+                </Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.modalTitle}>{aspirante?.nombre}</Text>
           <Text style={styles.modalSubtitle}>
             Examen del aspirante — toca una opción para corregirla
           </Text>
-        </View>
-        <Pressable onPress={onClose}>
-          <Ionicons name="close" size={24} />
-        </Pressable>
-      </View>
-      {cargando ? (
-        <ActivityIndicator size="large" style={{ marginTop: 50 }} />
-      ) : preguntas.length === 0 ? (
-        <Placeholder
-          icon="document-text-outline"
-          mensaje="Este aspirante aún no tiene respuestas capturadas"
-        />
-      ) : (
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 20 }}>
-          {preguntas.map((p, indice) => {
-            const esOpcionMultiple = p.tipo !== "Abierta";
-            return (
-              <View key={p.idPregunta} style={styles.preguntaRevisionCard}>
-                <View style={styles.preguntaRevisionHeader}>
-                  <Text style={styles.preguntaRevisionNumero}>
-                    Pregunta {indice + 1}
+        </LinearGradient>
+        {cargando ? (
+          <ActivityIndicator size="large" style={{ marginTop: 50 }} />
+        ) : preguntas.length === 0 ? (
+          <Placeholder
+            icon="document-text-outline"
+            mensaje="Este aspirante aún no tiene respuestas capturadas"
+          />
+        ) : (
+          <ScrollView contentContainerStyle={styles.revisionScrollContenido}>
+            {preguntas.map((p, indice) => {
+              const esOpcionMultiple = p.tipo !== "Abierta";
+              const esCorrecta = esOpcionMultiple
+                ? (p.respuestaAspirante ?? "").toUpperCase() ===
+                  p.respuestaCorrecta.toUpperCase()
+                : null;
+              return (
+                <View key={p.idPregunta} style={styles.preguntaRevisionCard}>
+                  <View style={styles.preguntaRevisionHeader}>
+                    <View style={styles.preguntaRevisionNumeroWrap}>
+                      <Text style={styles.preguntaRevisionNumero}>
+                        {indice + 1}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      {!!p.materia && (
+                        <Text style={styles.preguntaRevisionMateria}>
+                          {p.materia.toUpperCase()}
+                        </Text>
+                      )}
+                    </View>
+                    {esOpcionMultiple && (
+                      <Ionicons
+                        name={
+                          esCorrecta ? "checkmark-circle" : "close-circle"
+                        }
+                        size={20}
+                        color={
+                          esCorrecta ? ColoresApp.exito : ColoresApp.error
+                        }
+                      />
+                    )}
+                  </View>
+                  <Text style={styles.preguntaRevisionTexto}>
+                    {p.pregunta}
                   </Text>
-                  {!!p.materia && (
-                    <Text style={styles.preguntaRevisionMateria}>
-                      {p.materia.toUpperCase()}
-                    </Text>
+
+                  {esOpcionMultiple ? (
+                    <View style={{ gap: 8, marginTop: 12 }}>
+                      {(
+                        [
+                          ["A", p.opcionA],
+                          ["B", p.opcionB],
+                          ["C", p.opcionC],
+                          ["D", p.opcionD],
+                        ] as [string, string | undefined][]
+                      )
+                        .filter(([, texto]) => !!texto)
+                        .map(([letra, texto]) => (
+                          <OpcionRevision
+                            key={letra}
+                            letra={letra}
+                            texto={texto ?? ""}
+                            esRespuestaAspirante={
+                              (p.respuestaAspirante ?? "").toUpperCase() ===
+                              letra
+                            }
+                            esCorrecta={
+                              p.respuestaCorrecta.toUpperCase() === letra
+                            }
+                            onPress={() => onCorregir(p, letra)}
+                          />
+                        ))}
+                    </View>
+                  ) : (
+                    <View style={styles.respuestaAbiertaBox}>
+                      <Text style={styles.respuestaAbiertaTexto}>
+                        {p.respuestaAspirante || "Sin respuesta"}
+                      </Text>
+                    </View>
                   )}
                 </View>
-                <Text style={styles.preguntaRevisionTexto}>
-                  {p.pregunta}
-                </Text>
-
-                {esOpcionMultiple ? (
-                  <View style={{ gap: 8, marginTop: 10 }}>
-                    {(
-                      [
-                        ["A", p.opcionA],
-                        ["B", p.opcionB],
-                        ["C", p.opcionC],
-                        ["D", p.opcionD],
-                      ] as [string, string | undefined][]
-                    )
-                      .filter(([, texto]) => !!texto)
-                      .map(([letra, texto]) => (
-                        <OpcionRevision
-                          key={letra}
-                          letra={letra}
-                          texto={texto ?? ""}
-                          esRespuestaAspirante={
-                            (p.respuestaAspirante ?? "").toUpperCase() ===
-                            letra
-                          }
-                          esCorrecta={
-                            p.respuestaCorrecta.toUpperCase() === letra
-                          }
-                          onPress={() => onCorregir(p, letra)}
-                        />
-                      ))}
-                  </View>
-                ) : (
-                  <View style={styles.respuestaAbiertaBox}>
-                    <Text style={styles.respuestaAbiertaTexto}>
-                      {p.respuestaAspirante || "Sin respuesta"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </ScrollView>
-      )}
-    </SafeAreaView>
-  </Modal>
-);
+              );
+            })}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+};
 
 // --- PANTALLA PRINCIPAL ---
 
@@ -729,7 +897,18 @@ export default function VistaGestionEvaluaciones() {
 
   const panelCarreras = (
     <View style={[esAncho ? styles.sidebar : styles.topbar]}>
-      {esAncho && <Text style={styles.sidebarTitle}>CARRERAS</Text>}
+      {esAncho && (
+        <View style={styles.sidebarTituloFila}>
+          <Ionicons
+            name="library-outline"
+            size={14}
+            color={ColoresApp.textoSecundario}
+          />
+          <Text style={styles.sidebarTitle}>
+            CARRERAS ({carreras.length})
+          </Text>
+        </View>
+      )}
       <ListaCarreras
         carreras={carreras}
         seleccionada={carreraSeleccionada}
@@ -745,6 +924,7 @@ export default function VistaGestionEvaluaciones() {
         <Placeholder
           icon="school-outline"
           mensaje="Selecciona una carrera para gestionar evaluaciones"
+          subtitulo="Elige una opción del panel izquierdo para ver a sus aspirantes"
         />
       ) : cargando ? (
         <ActivityIndicator size="large" style={{ marginTop: 50 }} />
@@ -752,6 +932,7 @@ export default function VistaGestionEvaluaciones() {
         <Placeholder
           icon="people-outline"
           mensaje="No hay aspirantes registrados en esta carrera"
+          subtitulo="Cuando se registren aspirantes aparecerán aquí"
         />
       ) : (
         <>
@@ -819,7 +1000,13 @@ export default function VistaGestionEvaluaciones() {
         style={styles.topBar}
       >
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/panel");
+            }
+          }}
           style={styles.topBarBotonIcono}
         >
           <Ionicons name="arrow-back" size={22} color="white" />
@@ -887,13 +1074,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
+  sidebarTituloFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
   sidebarTitle: {
     fontSize: 12,
     fontWeight: "bold",
     color: ColoresApp.textoSecundario,
     letterSpacing: 1.2,
-    padding: 20,
-    paddingBottom: 12,
   },
   carrerasListaVertical: {
     paddingHorizontal: 12,
@@ -949,10 +1142,40 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: 16,
+    padding: 24,
+  },
+  placeholderCard: {
+    alignItems: "center",
+    backgroundColor: "white",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
+    paddingVertical: 40,
+    paddingHorizontal: 32,
+    maxWidth: 360,
+    boxShadow: "0 2px 8px rgba(11,42,74,0.06)",
+  },
+  placeholderIconoWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: ColoresApp.primarioFondo,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 18,
   },
   placeholderText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: ColoresApp.oscuro,
+    textAlign: "center",
+  },
+  placeholderSubtexto: {
+    fontSize: 13,
     color: ColoresApp.textoSecundario,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 18,
   },
   aspirantesList: {
     padding: 24,
@@ -1048,13 +1271,9 @@ const styles = StyleSheet.create({
     borderBottomColor: ColoresApp.borde,
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "bold",
-  },
-  modalSubtitle: {
-    fontSize: 12,
-    color: ColoresApp.textoSecundario,
-    marginTop: 2,
+    color: "white",
   },
   filtrosBar: {
     flexDirection: "row",
@@ -1083,17 +1302,50 @@ const styles = StyleSheet.create({
   filtroChipTextoActivo: {
     color: "white",
   },
+  revisionScrollContenido: {
+    padding: 20,
+    gap: 16,
+  },
+  modalHeaderFilaTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  modalResumenBadge: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  modalResumenBadgeTexto: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "white",
+  },
   preguntaRevisionCard: {
     backgroundColor: "white",
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: ColoresApp.borde,
     padding: 16,
+    boxShadow: "0 1px 4px rgba(11,42,74,0.07)",
   },
   preguntaRevisionHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  preguntaRevisionNumeroWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: ColoresApp.primarioFondo,
+    justifyContent: "center",
+    alignItems: "center",
   },
   preguntaRevisionNumero: {
     fontSize: 12,
@@ -1102,37 +1354,41 @@ const styles = StyleSheet.create({
   },
   preguntaRevisionMateria: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     color: ColoresApp.textoSecundario,
+    letterSpacing: 0.5,
   },
   preguntaRevisionTexto: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: ColoresApp.oscuro,
+    lineHeight: 21,
   },
   opcionRevision: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: ColoresApp.borde,
+    backgroundColor: ColoresApp.fondo,
     gap: 10,
   },
   opcionRevisionCorrectaBase: {},
   opcionCorrecta: {
-    backgroundColor: "rgba(22,163,74,0.08)",
-    borderColor: "#16A34A",
+    backgroundColor: ColoresApp.exitoFondo,
+    borderColor: ColoresApp.exito,
   },
   opcionIncorrecta: {
     backgroundColor: "rgba(220,38,38,0.08)",
-    borderColor: "#DC2626",
+    borderColor: ColoresApp.error,
   },
   opcionRevisionLetra: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 1.5,
+    backgroundColor: "white",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1142,19 +1398,28 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   opcionRevisionTexto: {
-    fontSize: 13,
+    fontSize: 13.5,
+    fontWeight: "500",
     color: ColoresApp.oscuro,
     flex: 1,
+  },
+  opcionRevisionEtiquetaWrap: {
+    backgroundColor: ColoresApp.error,
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   opcionRevisionEtiqueta: {
     fontSize: 10,
     fontWeight: "bold",
-    color: "#DC2626",
+    color: "white",
   },
   respuestaAbiertaBox: {
     marginTop: 10,
     backgroundColor: ColoresApp.fondo,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
     padding: 12,
   },
   respuestaAbiertaTexto: {
@@ -1170,12 +1435,95 @@ const styles = StyleSheet.create({
     borderBottomColor: ColoresApp.borde,
   },
   infoLabel: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: "600",
     color: ColoresApp.textoSecundario,
+    marginBottom: 2,
   },
   infoValor: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: ColoresApp.oscuro,
+  },
+  modalHeaderGradient: {
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+  },
+  modalCerrarBoton: {
+    alignSelf: "flex-end",
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    marginBottom: 14,
+  },
+  modalPerfilFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  modalAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  modalAvatarTexto: {
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 2,
+  },
+  modalCalifBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  modalCalifTexto: {
+    fontSize: 15,
+    fontWeight: "bold",
+  },
+  modalScrollContenido: {
+    padding: 20,
+    gap: 12,
+  },
+  infoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ColoresApp.borde,
+    padding: 14,
+    marginBottom: 12,
+    boxShadow: "0 1px 3px rgba(11,42,74,0.06)",
+  },
+  infoCardIcono: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoCardTextos: {
+    flex: 1,
+  },
+  asistenciaFila: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  asistenciaEstadoTexto: {
+    fontSize: 14,
+    fontWeight: "700",
   },
 });
