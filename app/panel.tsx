@@ -1436,6 +1436,17 @@ export default function PanelScreen() {
     }
   };
 
+  // El fondo se pinta aquí (además de en app/_layout.tsx) porque
+  // panel.tsx es una pantalla con su propio scroll/contenedores internos
+  // que en web pueden quedar con fondo blanco por defecto si no hay un
+  // pintor de fondo directamente encima de ellos. Quitar este wrapper
+  // (como se probó antes) deja el panel sin fondo/gradiente y el texto
+  // blanco se vuelve invisible sobre blanco — por eso se restaura.
+  // El problema real de la imagen de fondo (parpadeo/errores) ya se
+  // arregló DENTRO de FondoDinamico.tsx (ver FondoImagen: altura en web,
+  // manejo de error y de carga), así que no hace falta quitar este
+  // wrapper — los navegadores cachean la misma URL, así que pintarla
+  // aquí y en _layout.tsx no la descarga dos veces.
   return (
     <FondoDinamico tema={temaGlobal} style={{ flex: 1 }}>
       <HeaderAdmin

@@ -1,4 +1,6 @@
 import { CampoTexto } from "@/components/CampoTexto";
+import { ColorPickerCampo } from "@/components/ColorPickerCampo";
+import { VistaPreviaTema } from "@/components/VistaPreviaTema";
 import { avisar, useConfirm } from "@/components/ConfirmDialog";
 import { DeslizadorSimple } from "@/components/DeslizadorSimple";
 import { ColoresApp } from "@/constants/coloresApp";
@@ -12,6 +14,7 @@ import {
 } from "@/services/adminAuthServicio";
 import {
     actualizarLimites,
+    actualizarLimitesMensuales,
     actualizarModoAutomatico,
     actualizarRegistroAutomatico,
     obtenerConfiguracion,
@@ -1561,7 +1564,7 @@ function AparienciaModal({
   onClose: () => void;
 }) {
   const [rolActivo, setRolActivo] = useState<TemaConfig["rol"]>("admin");
-  const { tema, guardar } = useTemaControlador(rolActivo);
+  const { tema, guardar, cargando: cargandoTema } = useTemaControlador(rolActivo);
   const [borrador, setBorrador] = useState<TemaConfig>(tema);
   const [guardando, setGuardando] = useState(false);
 
@@ -1575,8 +1578,16 @@ function AparienciaModal({
     onClose();
   };
 
+  // IMPORTANTE: al cambiar de pestaña (Admin/Aspirante) el tema del rol
+  // nuevo se carga de Supabase de forma asíncrona; si el admin edita un
+  // color justo después de cambiar de pestaña pero antes de que esa carga
+  // termine, `borrador` podía quedar con datos de la pestaña anterior
+  // (incluido el campo `rol`), guardando por error en la fila equivocada
+  // o mezclando valores entre roles. Forzamos aquí `rol: rolActivo` en
+  // cada cambio para que, pase lo que pase con el timing de la carga, el
+  // guardado siempre vaya a la fila del rol que se está viendo en pantalla.
   const cambiar = (cambios: Partial<TemaConfig>) =>
-    setBorrador((b) => ({ ...b, ...cambios }));
+    setBorrador((b) => ({ ...b, ...cambios, rol: rolActivo }));
 
   const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [imagenesRecientes, setImagenesRecientes] = useState<string[]>([]);
@@ -1601,11 +1612,22 @@ function AparienciaModal({
   }, [visible, borrador.fondoTipo, rolActivo]);
 
   const guardarCambios = async () => {
+    // Si el tema del rol seleccionado todavía se está cargando de Supabase
+    // (por ejemplo, si guardas justo después de cambiar de pestaña), no
+    // dejamos guardar: `borrador` podría no corresponder todavía al rol
+    // activo y guardaríamos datos equivocados o incompletos.
+    if (cargandoTema) {
+      avisar(
+        "Espera un momento",
+        "El tema de esta pestaña todavía se está cargando. Intenta de nuevo en un segundo.",
+      );
+      return;
+    }
     setGuardando(true);
     let exito = false;
     let error: string | undefined;
     try {
-      const res = await guardar(borrador);
+      const res = await guardar({ ...borrador, rol: rolActivo });
       exito = res.exito;
       error = res.error;
     } catch (e) {
@@ -1755,40 +1777,7 @@ function AparienciaModal({
               ))}
             </ScrollView>
 
-            <View
-              style={[
-                styles.previewBox,
-                {
-                  borderRadius: borrador.radioBordes,
-                  backgroundColor:
-                    borrador.fondoTipo === "color"
-                      ? borrador.fondoColor
-                      : ColoresApp.borde,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.previewChip,
-                  {
-                    backgroundColor: borrador.colorPrimario,
-                    borderRadius: borrador.radioBordes * 0.6,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.previewDot,
-                    { backgroundColor: borrador.colorSecundario },
-                  ]}
-                />
-                <Text
-                  style={{ color: "white", fontWeight: "bold", fontSize: 12 }}
-                >
-                  Vista previa
-                </Text>
-              </View>
-            </View>
+            <VistaPreviaTema tema={borrador} />
 
             <Text style={styles.segmentedLabel}>MODO</Text>
             <SegmentedRow
@@ -1831,21 +1820,23 @@ function AparienciaModal({
                 );
               })}
             </View>
-            <CampoTexto
-              etiqueta="Color primario personalizado (hex)"
+            <ColorPickerCampo
+              etiqueta="Color primario"
+              ayuda="Botones y detalles principales"
               valor={borrador.colorPrimario}
               onChangeText={(v) => cambiar({ colorPrimario: v })}
-              icono="pricetag-outline"
-              placeholder="#0055A4"
-              autoCapitalize="none"
             />
-            <CampoTexto
-              etiqueta="Color de texto (hex)"
+            <ColorPickerCampo
+              etiqueta="Color secundario / acento"
+              ayuda="Detalles, bordes y puntos de énfasis"
+              valor={borrador.colorSecundario}
+              onChangeText={(v) => cambiar({ colorSecundario: v })}
+            />
+            <ColorPickerCampo
+              etiqueta="Color de texto"
+              ayuda="Texto sobre el fondo configurado abajo"
               valor={borrador.colorTexto}
               onChangeText={(v) => cambiar({ colorTexto: v })}
-              icono="text-outline"
-              placeholder="#1F2A44"
-              autoCapitalize="none"
             />
 
             <Text style={styles.segmentedLabel}>FONDO</Text>
@@ -1868,29 +1859,23 @@ function AparienciaModal({
               </Text>
             )}
             {borrador.fondoTipo === "color" && (
-              <CampoTexto
-                etiqueta="Color de fondo (hex)"
+              <ColorPickerCampo
+                etiqueta="Color de fondo"
                 valor={borrador.fondoColor}
                 onChangeText={(v) => cambiar({ fondoColor: v })}
-                icono="pricetag-outline"
-                autoCapitalize="none"
               />
             )}
             {borrador.fondoTipo === "gradiente" && (
               <>
-                <CampoTexto
-                  etiqueta="Degradado — color inicial (hex)"
+                <ColorPickerCampo
+                  etiqueta="Degradado — color inicial"
                   valor={borrador.fondoGradienteInicio}
                   onChangeText={(v) => cambiar({ fondoGradienteInicio: v })}
-                  icono="pricetag-outline"
-                  autoCapitalize="none"
                 />
-                <CampoTexto
-                  etiqueta="Degradado — color final (hex)"
+                <ColorPickerCampo
+                  etiqueta="Degradado — color final"
                   valor={borrador.fondoGradienteFin}
                   onChangeText={(v) => cambiar({ fondoGradienteFin: v })}
-                  icono="pricetag-outline"
-                  autoCapitalize="none"
                 />
                 <Pressable
                   onPress={() =>
@@ -2075,7 +2060,7 @@ function AparienciaModal({
             <Pressable
               style={styles.actionButton}
               onPress={guardarCambios}
-              disabled={guardando}
+              disabled={guardando || cargandoTema}
             >
               {guardando ? (
                 <ActivityIndicator color="white" size="small" />

@@ -5,7 +5,7 @@ import { cerrarTodasLasSesiones, guardarSesionAdmin } from '@/services/sesionSer
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -27,18 +27,18 @@ export default function PantallaLoginAdmin() {
   const [contrasena, setContrasena] = useState('');
   const [cargando, setCargando] = useState(false);
   const [verContrasena, setVerContrasena] = useState(false);
-  const [mensajeError, setMensajeError] = useState('');
-
-  // Si venimos rebotados desde /panel porque la sesión guardada ya no
-  // era válida (cuenta eliminada o desactivada), avisamos con un mensaje
-  // claro en vez de dejar que la persona piense que el login "no sirve".
-  useEffect(() => {
-    if (sesionInvalida === '1') {
-      setMensajeError(
-        'Tu sesión ya no es válida (la cuenta fue eliminada o desactivada). Vuelve a iniciar sesión.',
-      );
-    }
-  }, [sesionInvalida]);
+  // Si venimos rebotados desde /panel porque la sesión guardada ya no era
+  // válida (cuenta eliminada o desactivada), avisamos con un mensaje claro
+  // en vez de dejar que la persona piense que el login "no sirve". Esto se
+  // calcula directo al inicializar el estado (no en un useEffect) porque
+  // depende únicamente del parámetro de la ruta al montar la pantalla; no
+  // hace falta "sincronizar con un sistema externo", así que un efecto
+  // aquí solo generaba un render extra en cascada sin necesidad.
+  const [mensajeError, setMensajeError] = useState(() =>
+    sesionInvalida === '1'
+      ? 'Tu sesión ya no es válida (la cuenta fue eliminada o desactivada). Vuelve a iniciar sesión.'
+      : '',
+  );
 
   const iniciarSesion = async () => {
     setCargando(true);
@@ -164,7 +164,7 @@ export default function PantallaLoginAdmin() {
 const styles = StyleSheet.create({
   contenedorPrincipal: {
     flex: 1,
-    backgroundColor: ColoresApp.oscuro,
+    backgroundColor: 'transparent',
   },
   areaEncabezado: {
     width: '100%',

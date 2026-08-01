@@ -240,7 +240,7 @@ export default function PantallaRegistroAspirante() {
 }
 
 const styles = StyleSheet.create({
-  contenedorPrincipal: { flex: 1, backgroundColor: ColoresApp.fondo },
+  contenedorPrincipal: { flex: 1, backgroundColor: 'transparent' },
   centrado: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",

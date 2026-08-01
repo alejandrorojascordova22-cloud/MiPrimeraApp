@@ -214,7 +214,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   contenedorPrincipal: {
     flex: 1,
-    backgroundColor: ColoresApp.oscuro,
+    backgroundColor: "transparent",
   },
   areaEncabezado: {
     backgroundColor: ColoresApp.oscuro,

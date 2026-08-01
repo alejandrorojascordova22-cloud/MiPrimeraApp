@@ -1,4 +1,7 @@
 import { ColoresApp } from "@/constants/coloresApp";
+import { useTema } from "@/hooks/useTema";
+import type { TemaConfig } from "@/services/temaConfig";
+import { construirPaletaAspirante, type PaletaAspirante } from "@/utils/temaPaleta";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Stack,
@@ -74,40 +77,39 @@ const aspiranteVacio: Aspirante = {
   fecha_fin_examen: null,
 };
 
-// --- PALETA DE COLORES DEL TEMA (dashboard morado, inspirado en Admissions Pro) ---
-const theme = {
-  // Fondo general de la app (contenido)
+// --- PALETA DE COLORES DEL TEMA ---
+// `theme` es un objeto MUTABLE a nivel de módulo (no un estado de React).
+// Todos los subcomponentes de esta pantalla (Sidebar, tarjetas, modales,
+// etc.) están definidos fuera del componente principal y leen `theme.xxx`
+// directamente por closure, así que en vez de pasar el tema como prop a
+// cada uno, `PerfilAspiranteScreen` llama a `aplicarPaletaAspirante(tema)`
+// al inicio de cada render, ANTES de que se dibuje cualquier hijo. Esto
+// actualiza en el sitio los valores de `theme` con lo que el admin
+// configuró en Ajustes del Sistema (o los valores por defecto mientras
+// carga), así que cuando los hijos se rendericen ya leen los colores
+// correctos para ese render. Se inicializa aquí con el look de siempre
+// como fallback, por si algo se renderiza antes del primer render de la
+// pantalla (no debería pasar, pero evita colores undefined).
+const theme: PaletaAspirante = {
   bgApp: "#F5F3FB",
   blanco: "#FFFFFF",
   negro: "#0F0D17",
-
-  // Texto
   texto: "#1E1B29",
   textoSecundario: "#8B8698",
   textoTerciario: "#B4AFC2",
-
-  // Bordes / superficies
   borde: "#ECE9F4",
   fondoSuave: "#F3F1FA",
-
-  // Marca / acento morado
   morado: "#7C3AED",
   moradoOscuro: "#5B21B6",
   moradoClaro: "#9061F9",
   moradoFondo: "#F1EBFE",
-
-  // Sidebar (oscuro)
   sidebarBg: "#17131F",
   sidebarBgAlt: "#1E1929",
   sidebarTexto: "#B7B2C6",
   sidebarTextoActivo: "#FFFFFF",
   sidebarBorde: "rgba(255,255,255,0.06)",
-
-  // Acento secundario (carrera / info)
   teal: "#0E9BA8",
   tealFondo: "#DCFAFB",
-
-  // Semánticos
   verde: ColoresApp.exito ?? "#16A34A",
   verdeFondo: "#DCFCE7",
   verdeBorde: "#BBF0CE",
@@ -119,6 +121,11 @@ const theme = {
   rojoBorde: "#F2C6C6",
   gris: "#9C97AC",
 };
+
+/** Sobrescribe en el sitio los valores de `theme` con la paleta derivada del tema real. */
+function aplicarPaletaAspirante(tema: TemaConfig) {
+  Object.assign(theme, construirPaletaAspirante(tema));
+}
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -157,6 +164,14 @@ export default function PantallaPerfilAspirante() {
   const router = useRouter();
   const { aspiranteId } = useLocalSearchParams<{ aspiranteId?: string }>();
   const { width } = useWindowDimensions();
+
+  // Tema del rol "aspirante" configurado en Ajustes del Sistema. Se lee del
+  // contexto global (ya cargado por _layout.tsx) y se aplica a `theme` en
+  // el cuerpo del render — no en un efecto — para que los subcomponentes
+  // (Sidebar, tarjetas, modales) ya lean los colores correctos la primera
+  // vez que se dibujan en este mismo render.
+  const tema = useTema();
+  aplicarPaletaAspirante(tema);
 
   const isDesktop = width >= BP_DESKTOP;
   const isTablet = width >= BP_TABLET && width < BP_DESKTOP;
@@ -2003,7 +2018,7 @@ const ModalQR = ({ visible, onClose, aspirante }: any) => {
 // --- ESTILOS ---
 
 const styles = StyleSheet.create({
-  appShell: { flex: 1, flexDirection: "row", backgroundColor: theme.bgApp },
+  appShell: { flex: 1, flexDirection: "row", backgroundColor: "transparent" },
   mainColumn: { flex: 1, position: "relative" },
 
   // Sidebar

@@ -165,7 +165,7 @@ function TarjetaCarrera({
 const styles = StyleSheet.create({
   contenedorPrincipal: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: 'transparent',
   },
   contenido: {
     flex: 1,
