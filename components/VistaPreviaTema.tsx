@@ -25,7 +25,7 @@ export function VistaPreviaTema({ tema }: VistaPreviaTemaProps) {
 
   return (
     <View style={styles.marco}>
-      <FondoDinamico tema={tema} style={styles.lienzo}>
+      <FondoDinamico tema={tema} style={styles.lienzo} fijarAlViewport={false}>
         <View style={styles.contenido}>
           {/* Simula una barra superior de la app */}
           <View style={styles.barraSuperior}>

@@ -91,6 +91,29 @@ export async function listarImagenesFondoRecientes(
   }
 }
 
+/**
+ * Elimina una imagen de fondo (ya subida a Supabase Storage) a partir de
+ * su URL pública. Se usa desde el carrete de "Recientes" en Ajustes del
+ * Sistema para poder limpiar imágenes viejas que ya no se quieren usar.
+ */
+export async function eliminarImagenFondoTema(url: string): Promise<boolean> {
+  try {
+    const marcador = `/${BUCKET_FONDOS}/`;
+    const indice = url.indexOf(marcador);
+    if (indice === -1) return false;
+    const ruta = decodeURIComponent(url.slice(indice + marcador.length));
+    const { error } = await supabase.storage.from(BUCKET_FONDOS).remove([ruta]);
+    if (error) {
+      console.warn('Error en eliminarImagenFondoTema:', error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('Excepción en eliminarImagenFondoTema:', e);
+    return false;
+  }
+}
+
 export async function guardarTema(
   tema: TemaConfig
 ): Promise<{ exito: boolean; error?: string }> {

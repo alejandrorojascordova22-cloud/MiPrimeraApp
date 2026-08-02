@@ -39,7 +39,7 @@ const PALETA_RAPIDA = [
   "#1F2A44", "#0B0821", "#FFFFFF", "#F2F5FA", "#111827", "#6DFE9C",
 ];
 
-const TONOS_ARCOIRIS = [
+const TONOS_ARCOIRIS: readonly [string, string, ...string[]] = [
   "#FF0000", "#FF8800", "#FFEE00", "#B3FF00", "#22FF00", "#00FFAA",
   "#00FFFF", "#0088FF", "#0000FF", "#8800FF", "#FF00EE", "#FF0000",
 ];

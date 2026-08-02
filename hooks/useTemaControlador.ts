@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  TemaConfig,
-  RolTema,
-  temaConfigPorDefecto,
-  esOscuro as esOscuroTema,
+    esOscuro as esOscuroTema,
+    RolTema,
+    TemaConfig,
+    temaConfigPorDefecto,
 } from '../services/temaConfig';
 import {
-  obtenerTema,
-  guardarTema,
-  escucharTema,
+    escucharTema,
+    guardarTema,
+    obtenerTema,
 } from '../services/temaConfigServicio';
 
 /**
@@ -40,11 +40,15 @@ export function useTemaControlador(rol: RolTema) {
       if (!activo) return;
       setTema(inicial);
       setCargando(false);
+      console.log('[DEBUG useTemaControlador] tema inicial cargado', { rol, inicial });
 
       try {
         canalRef.current?.unsubscribe();
         canalRef.current = escucharTema(rol, (nuevo) => {
-          if (activo) setTema(nuevo);
+          if (activo) {
+            console.log('[DEBUG useTemaControlador] tema realtime recibido', { rol, nuevo });
+            setTema(nuevo);
+          }
         });
       } catch {
         // Si falla realtime (p. ej. tabla aún no migrada) la app sigue

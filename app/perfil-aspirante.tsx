@@ -125,6 +125,15 @@ const theme: PaletaAspirante = {
 /** Sobrescribe en el sitio los valores de `theme` con la paleta derivada del tema real. */
 function aplicarPaletaAspirante(tema: TemaConfig) {
   Object.assign(theme, construirPaletaAspirante(tema));
+  // `styles` se define más abajo en el archivo (después de todos los
+  // subcomponentes); en el primer render de la app ya existe porque este
+  // archivo terminó de cargar módulo por completo antes de que React
+  // ejecute el componente. Se reconstruye en el sitio (mismo objeto) para
+  // que los estilos que dependían de `theme` queden con los colores
+  // recién calculados.
+  if (typeof styles !== "undefined") {
+    Object.assign(styles, construirEstilos());
+  }
 }
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -2017,7 +2026,17 @@ const ModalQR = ({ visible, onClose, aspirante }: any) => {
 
 // --- ESTILOS ---
 
-const styles = StyleSheet.create({
+// IMPORTANTE: esto era `const styles = StyleSheet.create({...theme.xxx...})`.
+// `StyleSheet.create` se ejecuta UNA sola vez, al importar el archivo —
+// mucho antes de que `aplicarPaletaAspirante` corra con el tema real de
+// Supabase. Eso "congelaba" para siempre los colores que dependían de
+// `theme` (fondo del sidebar, botones, texto, bordes...) con los valores
+// iniciales, sin importar cuántas veces se guardara un tema nuevo. Por
+// eso se convierte en una función: se vuelve a llamar cada vez que
+// cambia el tema (ver `aplicarPaletaAspirante` más arriba), reconstruyendo
+// los estilos con los colores actuales de `theme`.
+function construirEstilos() {
+  return StyleSheet.create({
   appShell: { flex: 1, flexDirection: "row", backgroundColor: "transparent" },
   mainColumn: { flex: 1, position: "relative" },
 
@@ -2114,7 +2133,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     rowGap: 14,
-    backgroundColor: theme.blanco,
+    // "CC" = ~80% de opacidad: deja pasar la imagen de fondo detrás pero
+    // conserva suficiente contraste para que el texto siga siendo legible.
+    backgroundColor: theme.blanco + "CC",
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
@@ -2178,7 +2199,9 @@ const styles = StyleSheet.create({
   cardContainer: {
     borderRadius: 20,
     padding: 18,
-    backgroundColor: theme.blanco,
+    // "CC" = ~80% de opacidad, misma idea que profileHeaderCard: se ve la
+    // imagen de fondo detrás de la tarjeta en lugar de un blanco sólido.
+    backgroundColor: theme.blanco + "CC",
     borderWidth: 1,
     borderColor: theme.borde,
   },
@@ -2461,4 +2484,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   actividadBadgeTexto: { fontSize: 9.5, fontWeight: "700" },
-});
+  });
+}
+
+// `styles` sigue siendo un solo objeto estable (así los subcomponentes que
+// lo usan por closure, como `styles.sidebar`, `styles.headerTitle`, etc.,
+// no necesitan cambiar), pero ahora es mutable: `aplicarPaletaAspirante`
+// reconstruye su contenido cada vez que cambia el tema.
+let styles: Record<string, any> = construirEstilos();

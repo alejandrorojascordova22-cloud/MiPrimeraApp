@@ -974,6 +974,20 @@ export default function PanelScreen() {
       cargarAsistenciasRecientes();
     }, 0);
 
+    // En dev, StrictMode monta -> limpia -> vuelve a montar este efecto.
+    // Si el `removeChannel` del primer montaje no terminó a tiempo,
+    // `supabase.channel("panel-asistencias")` puede devolver el mismo
+    // canal viejo YA suscrito, y el `.on()` de abajo truena con
+    // "cannot add postgres_changes callbacks after subscribe()". Por eso
+    // primero limpiamos cualquier canal viejo con este mismo nombre antes
+    // de crear uno nuevo.
+    const viejo = supabase
+      .getChannels()
+      .find((c) => c.topic === "realtime:panel-asistencias");
+    if (viejo) {
+      supabase.removeChannel(viejo);
+    }
+
     const canal = supabase
       .channel("panel-asistencias")
       .on(
