@@ -46,8 +46,8 @@ export async function registrarAspirante({
     }
 
     const data: Record<string, any> = {
-      nombre,
-      correo,
+      nombre: nombre.trim(),
+      correo: correo.trim().toLowerCase(),
       carrera_id: idCarrera,
     };
 
@@ -86,9 +86,17 @@ export async function crearAspirante(
   data: Record<string, any>,
 ): Promise<Record<string, any> | null> {
   try {
+    const dataLimpia: Record<string, any> = { ...data };
+    if (typeof dataLimpia.nombre === "string") {
+      dataLimpia.nombre = dataLimpia.nombre.trim();
+    }
+    if (typeof dataLimpia.correo === "string") {
+      dataLimpia.correo = dataLimpia.correo.trim().toLowerCase();
+    }
+
     const { data: res, error } = await supabase
       .from("aspirantes")
-      .insert(data)
+      .insert(dataLimpia)
       .select()
       .maybeSingle();
     if (error || !res) return null;
@@ -217,6 +225,62 @@ export async function validarFolio({
     return resultado;
   } catch (e) {
     console.warn("Error en validarFolio:", e);
+    return null;
+  }
+}
+
+interface BuscarAspirantePorRecuperacionParams {
+  nombre: string;
+  idCarrera: number;
+  correo: string;
+}
+
+/**
+ * Busca a un aspirante para el flujo de "recuperar mi folio", exigiendo que
+ * coincidan 3 datos (nombre + carrera + correo) en vez de solo el correo,
+ * para evitar que cualquiera con solo el correo de otra persona pueda
+ * obtener su folio.
+ */
+export async function buscarAspirantePorRecuperacion({
+  nombre,
+  idCarrera,
+  correo,
+}: BuscarAspirantePorRecuperacionParams): Promise<Record<string, any> | null> {
+  try {
+    const nombreLimpio = nombre.trim().toLowerCase();
+    const correoLimpio = correo.trim().toLowerCase();
+
+    // Se busca solo por correo + carrera (ambos suelen quedar más "limpios"
+    // al escribirse) y el nombre se compara después ya recortado en JS, para
+    // que un espacio de más guardado en la BD (de un registro viejo o de una
+    // carga masiva) no impida encontrar al aspirante.
+    const { data: candidatos, error } = await supabase
+      .from("aspirantes")
+      .select("*, carreras(nombre)")
+      .ilike("correo", correoLimpio)
+      .eq("carrera_id", idCarrera);
+
+    if (error || !candidatos || candidatos.length === 0) return null;
+
+    const aspirante = candidatos.find(
+      (c) => (c.nombre ?? "").trim().toLowerCase() === nombreLimpio,
+    );
+
+    if (!aspirante) return null;
+
+    const resultado = { ...aspirante };
+    const carrerasJoin = resultado.carreras;
+    if (Array.isArray(carrerasJoin)) {
+      resultado.carrera_nombre = carrerasJoin[0]?.nombre ?? "Desconocida";
+    } else if (carrerasJoin && typeof carrerasJoin === "object") {
+      resultado.carrera_nombre = carrerasJoin.nombre ?? "Desconocida";
+    } else {
+      resultado.carrera_nombre = "Desconocida";
+    }
+
+    return resultado;
+  } catch (e) {
+    console.warn("Error en buscarAspirantePorRecuperacion:", e);
     return null;
   }
 }

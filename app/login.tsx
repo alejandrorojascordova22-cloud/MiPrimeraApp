@@ -203,6 +203,21 @@ export default function LoginScreen() {
                   Tu resultado solo llegará a tu correo.
                 </Text>
               </View>
+
+              <Pressable
+                onPress={() => router.push("/recuperar-folio-aspirante")}
+                style={{ marginTop: 16, alignItems: "center" }}
+              >
+                <Text
+                  style={{
+                    color: ColoresApp.primario,
+                    fontSize: 14,
+                    fontWeight: "600",
+                  }}
+                >
+                  ¿Olvidaste tu folio?
+                </Text>
+              </Pressable>
             </View>
           </View>
         </ScrollView>

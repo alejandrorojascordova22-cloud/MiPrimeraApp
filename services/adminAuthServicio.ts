@@ -239,6 +239,54 @@ export async function crearAdministrador({
   }
 }
 
+/**
+ * Pide al servidor generar un token de recuperación de contraseña para el
+ * admin con ese correo (válido 15 minutos, un solo uso). Devuelve el token
+ * en texto plano SOLO para que quien llama pueda mandarlo por correo de
+ * inmediato; nunca se debe mostrar en pantalla ni guardar en el celular.
+ *
+ * Devuelve null tanto si el correo no existe como si algo falló: por
+ * seguridad, la pantalla debe mostrar el MISMO mensaje de éxito en ambos
+ * casos (no revelar si un correo está o no registrado como admin).
+ */
+export async function solicitarRecuperacionPasswordAdmin(
+  correo: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc(
+      'solicitar_recuperacion_password_admin',
+      { p_correo: correo.trim().toLowerCase() },
+    );
+    if (error) throw error;
+    return (data as string | null) ?? null;
+  } catch (e) {
+    console.warn('Error en solicitarRecuperacionPasswordAdmin:', e);
+    return null;
+  }
+}
+
+/**
+ * Cambia la contraseña del admin usando el token recibido por correo.
+ * Devuelve true si el token era válido (no caducado, no usado) y se cambió
+ * la contraseña; false en cualquier otro caso.
+ */
+export async function restablecerPasswordAdmin(
+  token: string,
+  nuevaContrasena: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('restablecer_password_admin', {
+      p_token: token.trim(),
+      p_nueva_contrasena: nuevaContrasena,
+    });
+    if (error) throw error;
+    return data === true;
+  } catch (e) {
+    console.warn('Error en restablecerPasswordAdmin:', e);
+    return false;
+  }
+}
+
 interface ActualizarPerfilAdminParams {
   id: number;
   nombre?: string;

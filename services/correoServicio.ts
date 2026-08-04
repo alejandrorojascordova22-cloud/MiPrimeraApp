@@ -152,6 +152,197 @@ export async function enviarCorreoResultado({
   }
 }
 
+interface ConstruirHtmlRecuperacionFolioParams {
+  nombre: string;
+  folio: string;
+  carrera: string;
+}
+
+function construirHtmlRecuperacionFolio({
+  nombre,
+  folio,
+  carrera,
+}: ConstruirHtmlRecuperacionFolioParams): string {
+  return `
+    <html>
+      <body style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 40px 20px; text-align: center; color: white;">
+            <h1 style="margin: 0; font-size: 26px;">🔑 Recuperación de Folio</h1>
+            <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Examen de Admisión 2026</p>
+          </div>
+          <div style="padding: 40px;">
+            <h2 style="color: #1f2937; margin: 0 0 20px 0;">Hola, ${nombre}</h2>
+            <p style="color: #4b5563; line-height: 1.6; margin: 0 0 30px 0;">
+              Solicitaste recuperar tus datos de acceso al examen. Aquí están de nuevo:
+            </p>
+            <div style="background-color: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 20px; margin: 0 0 30px 0;">
+              <div style="background-color: white; padding: 15px; border-radius: 4px; margin: 0 0 10px 0;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0 0 3px 0; text-transform: uppercase;">FOLIO</p>
+                <p style="color: #1f2937; font-size: 18px; font-weight: bold; margin: 0; font-family: 'Courier New', monospace;">${folio}</p>
+              </div>
+              <div style="background-color: white; padding: 15px; border-radius: 4px; margin: 0;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0 0 3px 0; text-transform: uppercase;">CARRERA</p>
+                <p style="color: #1f2937; font-size: 16px; font-weight: bold; margin: 0;">${carrera}</p>
+              </div>
+            </div>
+            <p style="color: #4b5563; font-size: 13px; margin: 0;">
+              Usa el folio junto con tu correo para entrar a la app.
+              Si tú no solicitaste esto, puedes ignorar este correo.
+            </p>
+          </div>
+          <div style="background-color: #f3f4f6; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              © 2026 Universidad Tecnológica de Oriental. Todos los derechos reservados.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+interface EnviarCorreoRecuperacionFolioParams {
+  nombre: string;
+  correo: string;
+  folio: string;
+  carrera: string;
+}
+
+/**
+ * Reenvía el folio y la carrera de un aspirante que ya fue verificado
+ * (nombre + carrera + correo coincidieron) usando la misma Edge Function
+ * y el mismo Mailtrap que ya está configurado.
+ */
+export async function enviarCorreoRecuperacionFolio({
+  nombre,
+  correo,
+  folio,
+  carrera,
+}: EnviarCorreoRecuperacionFolioParams): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.functions.invoke('enviar-correo-aspirante', {
+      body: {
+        nombre,
+        correo,
+        tipo: 'recuperacion_folio',
+        asunto: '🔑 Recuperación de tu folio - Examen de Admisión 2026',
+        mensaje_html: construirHtmlRecuperacionFolio({ nombre, folio, carrera }),
+      },
+    });
+
+    const ok = !error && data && data.ok === true;
+    if (!ok) {
+      console.warn('enviarCorreoRecuperacionFolio: la función no envió el correo. Respuesta:', data, error);
+    }
+    return ok;
+  } catch (e) {
+    console.warn('Error al invocar enviar-correo-aspirante (recuperación folio):', e);
+    return false;
+  }
+}
+
+interface ConstruirHtmlRecuperacionPasswordAdminParams {
+  nombre: string;
+  linkRestablecer: string;
+  token: string;
+}
+
+function construirHtmlRecuperacionPasswordAdmin({
+  nombre,
+  linkRestablecer,
+  token,
+}: ConstruirHtmlRecuperacionPasswordAdminParams): string {
+  return `
+    <html>
+      <body style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #1f2937, #111827); padding: 40px 20px; text-align: center; color: white;">
+            <h1 style="margin: 0; font-size: 26px;">🔒 Restablecer contraseña</h1>
+            <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Panel de Administración</p>
+          </div>
+          <div style="padding: 40px;">
+            <h2 style="color: #1f2937; margin: 0 0 20px 0;">Hola, ${nombre}</h2>
+            <p style="color: #4b5563; line-height: 1.6; margin: 0 0 25px 0;">
+              Recibimos una solicitud para restablecer tu contraseña. Este enlace es válido
+              por <strong>15 minutos</strong> y solo se puede usar una vez.
+            </p>
+            <div style="text-align: center; margin: 0 0 25px 0;">
+              <a href="${linkRestablecer}"
+                 style="background-color: #2563eb; color: white; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: bold; display: inline-block;">
+                Restablecer mi contraseña
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 13px; line-height: 1.6; margin: 0 0 10px 0;">
+              Si el botón no abre la app, ingresa manualmente este código dentro de la
+              pantalla "Restablecer contraseña":
+            </p>
+            <div style="background-color: #f3f4f6; border-radius: 6px; padding: 12px; text-align: center; font-family: 'Courier New', monospace; font-size: 13px; color: #1f2937; word-break: break-all;">
+              ${token}
+            </div>
+            <p style="color: #9ca3af; font-size: 12px; margin: 25px 0 0 0;">
+              Si tú no solicitaste esto, ignora este correo: tu contraseña actual sigue funcionando.
+            </p>
+          </div>
+          <div style="background-color: #f3f4f6; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              © 2026 Universidad Tecnológica de Oriental. Todos los derechos reservados.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+interface EnviarCorreoRecuperacionPasswordAdminParams {
+  nombre: string;
+  correo: string;
+  token: string;
+}
+
+/**
+ * Manda el correo con el link (+ código de respaldo) para restablecer la
+ * contraseña del admin. Reusa la misma Edge Function/Mailtrap que ya está
+ * configurada; solo cambia el `tipo` para que no choque con los contadores
+ * de correos de aspirantes.
+ */
+export async function enviarCorreoRecuperacionPasswordAdmin({
+  nombre,
+  correo,
+  token,
+}: EnviarCorreoRecuperacionPasswordAdminParams): Promise<boolean> {
+  try {
+    const baseUrl =
+      process.env.EXPO_PUBLIC_APP_URL ??
+      (typeof window !== 'undefined' ? window.location.origin : 'https://miprimeraapp.com');
+    const linkRestablecer = `${baseUrl}/restablecer-password-admin?token=${encodeURIComponent(token)}`;
+
+    const { data, error } = await supabase.functions.invoke('enviar-correo-aspirante', {
+      body: {
+        nombre,
+        correo,
+        tipo: 'recuperacion_password_admin',
+        asunto: '🔒 Restablece tu contraseña de administrador',
+        mensaje_html: construirHtmlRecuperacionPasswordAdmin({
+          nombre,
+          linkRestablecer,
+          token,
+        }),
+      },
+    });
+
+    const ok = !error && data && data.ok === true;
+    if (!ok) {
+      console.warn('enviarCorreoRecuperacionPasswordAdmin: no se envió. Respuesta:', data, error);
+    }
+    return ok;
+  } catch (e) {
+    console.warn('Error al invocar enviar-correo-aspirante (recuperación password admin):', e);
+    return false;
+  }
+}
+
 interface EnviarCorreoConfirmacionRegistroParams {
   nombre: string;
   correo: string;

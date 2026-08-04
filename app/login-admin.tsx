@@ -133,6 +133,14 @@ export default function PantallaLoginAdmin() {
               {mensajeError ? <Text style={styles.textoError}>{mensajeError}</Text> : null}
 
               <Pressable
+                onPress={() => router.push('/recuperar-password-admin')}
+                style={{ alignSelf: 'flex-end', marginBottom: 12 }}>
+                <Text style={{ color: ColoresApp.primario, fontSize: 13, fontWeight: '600' }}>
+                  ¿Olvidaste tu contraseña?
+                </Text>
+              </Pressable>
+
+              <Pressable
                 onPress={iniciarSesion}
                 disabled={cargando}
                 style={({ pressed }) => [styles.boton, (cargando || pressed) && { opacity: 0.8 }]}>

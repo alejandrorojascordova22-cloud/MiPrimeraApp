@@ -1374,11 +1374,16 @@ export default function PanelScreen() {
         // objeto `r`; en 'inicio' (usando `filtrados`), están en `r.aspirante`.
         folio: r.aspirante?.folio ?? r.folio,
         nombre: r.aspirante?.nombre ?? r.nombre,
-        carrera: r.aspirante?.carreraNombre ?? r.carreraNombre,
+        carrera:
+          r.aspirante?.carreraNombre ??
+          r.carreraNombre ??
+          carreraActivaResultados?.nombre ??
+          carreraActiva?.nombre ??
+          "—",
         correo: r.aspirante?.correo ?? r.correo,
         asistencia:
           (r.aspirante?.asistencia ?? r.asistencia) ? "Presente" : "Ausente",
-        calificacion: `${r.calificacion}%`,
+        calificacion: `${r.resultado ?? r.calificacion ?? 0}%`,
         aciertos: r.aciertos,
         estado: r.aspirante?.estado ?? r.estado,
       }),

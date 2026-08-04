@@ -185,6 +185,20 @@ export default function PantallaExamen() {
           return;
         }
 
+        // Verificación contra el servidor de que el admin ya registró la
+        // asistencia (escaneo de QR) de este aspirante. Sin esto, alguien
+        // podría llegar directo a esta pantalla (URL guardada, "atrás" del
+        // navegador, etc.) y presentar el examen sin haberse presentado
+        // físicamente en la sede.
+        if (datosServidor?.asistencia !== true) {
+          Alert.alert(
+            "Aún no puedes presentar el examen",
+            "Primero debes registrar tu asistencia en la sede con el administrador.",
+          );
+          router.replace("/perfil-aspirante");
+          return;
+        }
+
         const clave = `examen_${aspiranteActual.folio}`;
         const listaPreguntas = (await obtenerPreguntas(
           aspiranteActual.carreraId,

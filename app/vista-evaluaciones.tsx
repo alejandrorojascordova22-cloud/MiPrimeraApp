@@ -1061,7 +1061,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: ColoresApp.fondo,
+    backgroundColor: "transparent",
   },
   sidebar: {
     width: 260,
