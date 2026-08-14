@@ -1,51 +1,52 @@
 import { CampoTexto } from "@/components/CampoTexto";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { FondoDinamico } from "@/components/FondoDinamico";
 import { ColoresApp } from "@/constants/coloresApp";
 import { useTema } from "@/hooks/useTema";
 import {
-    actualizarPerfilAdmin,
-    obtenerAdministradorPorId,
+  actualizarPerfilAdmin,
+  obtenerAdministradorPorId,
 } from "@/services/adminAuthServicio";
 import {
-    calcularEstadisticas,
-    filtrarPorCarrera,
-    obtenerResultados,
+  calcularEstadisticas,
+  filtrarPorCarrera,
+  obtenerResultados,
 } from "@/services/adminControlador";
 import {
-    actualizarAsistencia,
-    eliminarAspirante,
-    obtenerAsistenciasRecientes,
-    obtenerAspirantesPorCarrera,
-    reactivarExamenAspirante,
+  actualizarAsistencia,
+  eliminarAspirante,
+  obtenerAsistenciasRecientes,
+  obtenerAspirantesPorCarrera,
+  reactivarExamenAspirante,
 } from "@/services/aspirantesServicio";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
-    actualizarLimites,
-    actualizarModoAutomatico,
-    actualizarRegistroAutomatico,
-    obtenerConfiguracion,
-    reiniciarContadorMensualManual,
+  actualizarLimites,
+  actualizarModoAutomatico,
+  actualizarRegistroAutomatico,
+  obtenerConfiguracion,
+  reiniciarContadorMensualManual,
 } from "@/services/correosConfigServicio";
 import { obtenerVentanaExamenPorCarrera } from "@/services/preguntasExamenesServicio";
 import {
-    actualizarLimitesPush,
-    actualizarModoAutomaticoPush,
-    obtenerConfiguracionPush,
-    obtenerHistorialPush,
-    reiniciarContadorPushManual,
+  actualizarLimitesPush,
+  actualizarModoAutomaticoPush,
+  obtenerConfiguracionPush,
+  obtenerHistorialPush,
+  reiniciarContadorPushManual,
 } from "@/services/pushConfigServicio";
 import { obtenerResultadosPorCarrera } from "@/services/resultadosAdminServicio";
 import {
-    cerrarTodasLasSesiones,
-    guardarSesionAdmin,
-    obtenerSesionAdmin,
+  cerrarTodasLasSesiones,
+  guardarSesionAdmin,
+  obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import { supabase } from "@/services/supabaseClient";
 import type { ResultadoAspirante } from "@/types/resultadoAspirante";
 import {
-    exportarResultadosExcel,
-    exportarResultadosPDF,
-    type FilaExportable,
+  exportarResultadosExcel,
+  exportarResultadosPDF,
+  type FilaExportable,
 } from "@/utils/exportadorResultadosServicio";
 import { useResponsivo } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
@@ -53,19 +54,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
 } from "react-native";
 
 // Paleta oscura inspirada en el diseño de referencia (Admissions Pro):
@@ -942,17 +943,7 @@ export default function PanelScreen() {
   // Modal de opciones de exportación: formato (Excel/PDF) x acción
   // (ver/compartir o descargar). Reemplaza al botón que solo generaba CSV.
   const [exportOpcionesVisible, setExportOpcionesVisible] = useState(false);
-  // Confirmación personalizada para acciones destructivas (eliminar,
-  // reactivar examen). No usamos Alert.alert para esto porque en web
-  // depende de window.confirm(), que algunos navegadores suprimen sin
-  // avisar (el botón "parece" no hacer nada, sin error en consola).
-  const [confirmDialog, setConfirmDialog] = useState<{
-    visible: boolean;
-    titulo: string;
-    mensaje: string;
-    textoConfirmar: string;
-    onConfirmar: () => void;
-  } | null>(null);
+  const confirmar = useConfirm();
   const [adminActual, setAdminActual] = useState<Record<string, any> | null>(
     null,
   );
@@ -1270,13 +1261,12 @@ export default function PanelScreen() {
   };
 
   const confirmarReactivarExamen = (aspirante: Record<string, any>) => {
-    setConfirmDialog({
-      visible: true,
+    confirmar({
       titulo: "¿Reactivar examen?",
       mensaje: `Esto borrará el resultado y las respuestas anteriores de "${aspirante.nombre ?? "este aspirante"}", y le permitirá presentar el examen de nuevo desde cero.\n\nEsta acción no se puede deshacer.`,
       textoConfirmar: "Sí, reactivar",
+      destructivo: true,
       onConfirmar: async () => {
-        setConfirmDialog(null);
         const exito = await reactivarExamenAspirante(aspirante.id);
         if (exito) {
           setAspirantesBD((prev) =>
@@ -1307,13 +1297,12 @@ export default function PanelScreen() {
   };
 
   const confirmarEliminarAspirante = (aspirante: Record<string, any>) => {
-    setConfirmDialog({
-      visible: true,
+    confirmar({
       titulo: "¿Eliminar aspirante?",
       mensaje: `Se borrarán todos los datos de "${aspirante.nombre ?? "este aspirante"}", incluido su folio, respuestas y resultado. Esta acción no se puede deshacer.`,
       textoConfirmar: "Sí, eliminar",
+      destructivo: true,
       onConfirmar: async () => {
-        setConfirmDialog(null);
         const exito = await eliminarAspirante(aspirante.id);
         if (exito) {
           cargarAspirantesPorCarrera(aspirante.carrera_id);
@@ -2003,6 +1992,22 @@ export default function PanelScreen() {
               />
               <View style={{ height: 12 }} />
               <ActionTile
+                title="Carreras y programas"
+                subtitle="Agregar, editar y organizar las carreras del sistema"
+                icon="book-outline"
+                color="#8B5CF6"
+                onTap={() => router.push("/gestionar-carreras")}
+              />
+              <View style={{ height: 12 }} />
+              <ActionTile
+                title="Periodos y archivos"
+                subtitle="Exportar reportes o archivar aspirantes por periodo"
+                icon="calendar-outline"
+                color="#10B981"
+                onTap={() => router.push("/ajustes-sistema")}
+              />
+              <View style={{ height: 12 }} />
+              <ActionTile
                 title="Avisos para Aspirantes"
                 subtitle="Publicar anuncios en el tablón que ven los aspirantes"
                 icon="megaphone-outline"
@@ -2168,65 +2173,6 @@ export default function PanelScreen() {
                     Guardar
                   </Text>
                 )}
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Confirmación de acciones destructivas (eliminar / reactivar).
-          No usa Alert.alert: en web depende de window.confirm(), que
-          algunos navegadores suprimen sin avisar (el botón "parece" no
-          hacer nada, sin error en consola ni petición de red). */}
-      <Modal
-        visible={!!confirmDialog?.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmDialog(null)}
-      >
-        <Pressable
-          style={styles.modalOverlayCentrado}
-          onPress={() => setConfirmDialog(null)}
-        >
-          <Pressable style={styles.modalCardCentrado} onPress={() => {}}>
-            <Text
-              style={{
-                color: "white",
-                fontWeight: "bold",
-                fontSize: 17,
-                marginBottom: 8,
-              }}
-            >
-              {confirmDialog?.titulo}
-            </Text>
-            <Text
-              style={{
-                color: TEMA.textoSecundario,
-                fontSize: 14,
-                lineHeight: 20,
-              }}
-            >
-              {confirmDialog?.mensaje}
-            </Text>
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "flex-end",
-                gap: 16,
-                marginTop: 20,
-              }}
-            >
-              <Pressable onPress={() => setConfirmDialog(null)}>
-                <Text
-                  style={{ color: TEMA.textoSecundario, fontWeight: "600" }}
-                >
-                  Cancelar
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => confirmDialog?.onConfirmar()}>
-                <Text style={{ color: TEMA.peligro, fontWeight: "bold" }}>
-                  {confirmDialog?.textoConfirmar}
-                </Text>
               </Pressable>
             </View>
           </Pressable>

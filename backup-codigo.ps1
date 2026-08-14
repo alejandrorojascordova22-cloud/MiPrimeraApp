@@ -48,3 +48,10 @@ Remove-Item $temp -Recurse -Force
 Write-Host ""
 Write-Host "Listo. Zip creado en:" -ForegroundColor Green
 Write-Host $zipSalida
+
+
+
+
+
+correwr  .\backup-codigo.ps1
+ eores solucion Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass

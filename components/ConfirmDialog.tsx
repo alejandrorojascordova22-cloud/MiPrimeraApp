@@ -1,13 +1,13 @@
 import { ColoresApp } from "@/constants/coloresApp";
 import React, { createContext, useCallback, useContext, useState } from "react";
 import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 
 /**
@@ -135,6 +135,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+    zIndex: 9999,
+    elevation: 9999,
   },
   container: {
     backgroundColor: "white",
@@ -142,6 +144,8 @@ const styles = StyleSheet.create({
     padding: 24,
     width: "100%",
     maxWidth: 400,
+    zIndex: 10000,
+    elevation: 10000,
   },
   titulo: {
     fontSize: 18,

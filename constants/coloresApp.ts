@@ -17,5 +17,6 @@ export const ColoresApp = {
   error: '#D64545',
   primarioFondo: '#EAF2FC',
   textoSecundario: '#8A8F98',
+  textoTerciario: '#B4AFC2',
   advertencia: '#BA7517',
 } as const;

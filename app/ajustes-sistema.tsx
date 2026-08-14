@@ -2,51 +2,50 @@ import { CampoTexto } from "@/components/CampoTexto";
 import { avisar, useConfirm } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
-    actualizarActivoAdmin,
-    actualizarPerfilAdmin,
-    crearAdministrador,
-    eliminarAdministrador,
-    obtenerAdministradoresSecundarios,
+  actualizarActivoAdmin,
+  actualizarPerfilAdmin,
+  crearAdministrador,
+  eliminarAdministrador,
+  obtenerAdministradoresSecundarios,
 } from "@/services/adminAuthServicio";
 import {
-    actualizarLimites,
-    actualizarLimitesMensuales,
-    actualizarModoAutomatico,
-    actualizarRegistroAutomatico,
-    obtenerConfiguracion,
-    obtenerHistorial,
-    reiniciarContadorManual,
+  actualizarLimites,
+  actualizarLimitesMensuales,
+  actualizarModoAutomatico,
+  actualizarRegistroAutomatico,
+  obtenerConfiguracion,
+  obtenerHistorial,
+  reiniciarContadorManual,
 } from "@/services/correosConfigServicio";
 import { reporteACsv } from "@/services/reportesServicio";
 import {
-    generarReporteAspirantesPeriodo,
-    purgarAspirantesPeriodo,
+  generarReporteAspirantesPeriodo,
+  purgarAspirantesPeriodo,
 } from "@/services/resultadosAdminServicio";
 import {
-    cerrarSesionAdmin,
-    obtenerSesionAdmin,
+  cerrarSesionAdmin,
+  obtenerSesionAdmin,
 } from "@/services/sesionServicio";
 import {
-    esContraseniaFuerte,
-    obtenerFeedbackContrasena,
+  esContraseniaFuerte,
+  obtenerFeedbackContrasena,
 } from "@/utils/seguridadServicio";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
 } from "react-native";
 
 // --- TIPOS ---
@@ -268,9 +267,23 @@ export default function PantallaAjustesSistema() {
             />
           </SettingsCard>
 
+          {/* Academic Card */}
+          <SettingsCard
+            title="Académico"
+            icon="school-outline"
+            color={ColoresApp.primario}
+          >
+            <SettingsTile
+              title="Carreras y programas"
+              subtitle="Agregar, editar y organizar las carreras del sistema"
+              icon="book-outline"
+              onTap={() => router.push("/gestionar-carreras")}
+            />
+          </SettingsCard>
+
           {/* Data Lifecycle Card */}
           <SettingsCard
-            title="Ciclo de Vida de Datos"
+            title="Periodos y archivos"
             icon="calendar-outline"
             color="green"
           >
@@ -347,11 +360,19 @@ export default function PantallaAjustesSistema() {
       />
 
       <ReportePeriodoModal
+        key={
+          isReporteModalVisible ? "reporte-modal-open" : "reporte-modal-closed"
+        }
         visible={isReporteModalVisible}
         onClose={() => setReporteModalVisible(false)}
       />
 
       <ArchivarPeriodoModal
+        key={
+          isArchivarModalVisible
+            ? "archivar-modal-open"
+            : "archivar-modal-closed"
+        }
         visible={isArchivarModalVisible}
         onClose={() => setArchivarModalVisible(false)}
         onDataUpdated={onDatosActualizados}
@@ -366,7 +387,6 @@ export default function PantallaAjustesSistema() {
         visible={isHistorialModalVisible}
         onClose={() => setHistorialModalVisible(false)}
       />
-
     </SafeAreaView>
   );
 }
@@ -481,6 +501,7 @@ function GestionAdminsModal({
   const [admins, setAdmins] = useState<Record<string, any>[]>([]);
   const [cargando, setCargando] = useState(false);
   const [isNuevoVisible, setNuevoVisible] = useState(false);
+  const confirmar = useConfirm();
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -508,41 +529,21 @@ function GestionAdminsModal({
   };
 
   const confirmarEliminar = (adminItem: Record<string, any>) => {
-    const ejecutarEliminar = async () => {
-      const exito = await eliminarAdministrador(adminItem.id);
-      if (exito) {
-        cargar();
-      } else {
-        console.error("eliminarAdministrador falló para id:", adminItem.id);
-        avisar("Error", "No se pudo eliminar el administrador.");
-      }
-    };
-
-    // Alert.alert con botones no muestra ningún diálogo en web (queda en
-    // silencio), así que ahí usamos window.confirm en su lugar.
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      if (
-        window.confirm(
-          `¿Eliminar a ${adminItem.nombre}? Esta acción no se puede deshacer.`,
-        )
-      ) {
-        ejecutarEliminar();
-      }
-      return;
-    }
-
-    Alert.alert(
-      "Eliminar administrador",
-      `¿Eliminar a ${adminItem.nombre}? Esta acción no se puede deshacer.`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: ejecutarEliminar,
-        },
-      ],
-    );
+    confirmar({
+      titulo: "Eliminar administrador",
+      mensaje: `¿Eliminar a ${adminItem.nombre}? Esta acción no se puede deshacer.`,
+      textoConfirmar: "Eliminar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const exito = await eliminarAdministrador(adminItem.id);
+        if (exito) {
+          cargar();
+        } else {
+          console.error("eliminarAdministrador falló para id:", adminItem.id);
+          avisar("Error", "No se pudo eliminar el administrador.");
+        }
+      },
+    });
   };
 
   return (
@@ -768,6 +769,11 @@ function NuevoAdminModal({
   );
 }
 
+const obtenerPeriodoPorDefecto = () => {
+  const ahora = new Date();
+  return (ahora.getFullYear() - 1).toString();
+};
+
 // ════════════════════════════════════════════════════════════════════
 // CICLO DE VIDA DE DATOS: REPORTE
 // ════════════════════════════════════════════════════════════════════
@@ -778,7 +784,7 @@ function ReportePeriodoModal({
   visible: boolean;
   onClose: () => void;
 }) {
-  const [year, setYear] = useState(new Date().getFullYear().toString());
+  const [year, setYear] = useState(() => obtenerPeriodoPorDefecto());
   const [reporte, setReporte] = useState<Record<string, any>[]>([]);
   const [cargando, setCargando] = useState(false);
   const [descargando, setDescargando] = useState(false);
@@ -865,11 +871,11 @@ function ReportePeriodoModal({
           <Text style={styles.modalTitle}>Exportar Reporte por Período</Text>
 
           <CampoTexto
-            etiqueta="Año del periodo"
+            etiqueta="Periodo / ciclo (año)"
             valor={year}
             onChangeText={setYear}
             keyboardType="number-pad"
-            placeholder={new Date().getFullYear().toString()}
+            placeholder={obtenerPeriodoPorDefecto()}
             icono="calendar-outline"
           />
 
@@ -934,7 +940,7 @@ function ArchivarPeriodoModal({
   onClose: () => void;
   onDataUpdated: () => void;
 }) {
-  const [year, setYear] = useState((new Date().getFullYear() - 1).toString());
+  const [year, setYear] = useState(() => obtenerPeriodoPorDefecto());
   const [cargando, setCargando] = useState(false);
   const confirmar = useConfirm();
 
@@ -950,6 +956,7 @@ function ArchivarPeriodoModal({
     // "Archivar Período" no hacía nada al presionarlo desde el navegador).
     // Se reemplaza por useConfirm(), que muestra un Modal real igual en
     // iOS, Android y web.
+    onClose();
     confirmar({
       titulo: "Confirmar Archivado",
       mensaje: `Esta acción archivará (eliminará de forma permanente) a todos los aspirantes del periodo ${ano} y no se puede deshacer. ¿Estás seguro?`,
@@ -962,7 +969,6 @@ function ArchivarPeriodoModal({
           if (exito) {
             onDataUpdated();
             Alert.alert("Éxito", `Se han archivado los datos del año ${ano}.`);
-            onClose();
           } else {
             Alert.alert("Error", "No se pudo completar el archivado.");
           }
@@ -986,7 +992,7 @@ function ArchivarPeriodoModal({
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Archivar Período Caducado</Text>
           <CampoTexto
-            etiqueta="Año del periodo a archivar"
+            etiqueta="Periodo / ciclo a archivar"
             valor={year}
             onChangeText={setYear}
             keyboardType="number-pad"
@@ -1454,7 +1460,6 @@ function HistorialCorreosModal({
     </Modal>
   );
 }
-
 
 const styles = StyleSheet.create({
   aplicarAmbosRow: {

@@ -1,5 +1,5 @@
 import BannerPermisoNotificaciones from "@/components/BannerPermisoNotificaciones";
-import { avisar } from "@/components/ConfirmDialog";
+import { avisar, useConfirm } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
   obtenerAspirantes,
@@ -14,16 +14,14 @@ import {
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import { enviarPushNotificacion } from "@/services/pushNotificacionesServicio";
 import { supabase } from "@/services/supabaseClient";
+import { useResponsivo } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { useResponsivo } from "@/utils/responsive";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -53,11 +51,20 @@ const formatDate = (iso?: string) => {
 const AvisoRow = ({
   aviso,
   onDesactivar,
+  seleccionado,
+  modoSeleccion,
+  onToggleSeleccion,
 }: {
   aviso: Aviso & { carreras?: { nombre?: string } };
   onDesactivar: () => void;
+  seleccionado: boolean;
+  modoSeleccion: boolean;
+  onToggleSeleccion: () => void;
 }) => (
-  <View style={[styles.card, !aviso.activo && styles.cardInactivo]}>
+  <Pressable
+    style={[styles.card, !aviso.activo && styles.cardInactivo]}
+    onPress={modoSeleccion ? onToggleSeleccion : undefined}
+  >
     <View style={{ flex: 1 }}>
       <Text style={styles.cardTitulo}>{aviso.titulo}</Text>
       <Text style={styles.cardContenido} numberOfLines={2}>
@@ -71,12 +78,18 @@ const AvisoRow = ({
         {!aviso.activo ? " · inactivo" : ""}
       </Text>
     </View>
-    {aviso.activo && (
+    {modoSeleccion ? (
+      <View style={[styles.checkbox, seleccionado && styles.checkboxActivo]}>
+        {seleccionado && <Ionicons name="checkmark" size={12} color="white" />}
+      </View>
+    ) : aviso.activo ? (
       <Pressable onPress={onDesactivar} hitSlop={8}>
         <Ionicons name="trash-outline" size={20} color="red" />
       </Pressable>
+    ) : (
+      <View style={{ width: 20 }} />
     )}
-  </View>
+  </Pressable>
 );
 
 const PublicarAvisoModal = ({
@@ -264,6 +277,9 @@ export default function GestionarAvisosScreen() {
   const [carreras, setCarreras] = useState<Carrera[]>([]);
   const [cargando, setCargando] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [seleccionados, setSeleccionados] = useState<number[]>([]);
+  const confirmar = useConfirm();
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -306,20 +322,62 @@ export default function GestionarAvisosScreen() {
     };
   }, [cargar]);
 
-  const handleDesactivar = (aviso: Aviso) => {
-    const ejecutar = async () => {
-      const ok = await desactivarAviso(aviso.id);
-      if (ok) cargar();
-      else avisar("Error", "No se pudo desactivar el aviso.");
-    };
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      if (window.confirm(`¿Desactivar el aviso "${aviso.titulo}"?`)) ejecutar();
-      return;
+  const toggleSeleccion = (id: number) => {
+    setSeleccionados((prev) =>
+      prev.includes(id)
+        ? prev.filter((current) => current !== id)
+        : [...prev, id],
+    );
+  };
+
+  const seleccionarTodos = () => {
+    const avisosActivos = avisos.filter((a) => a.activo).map((a) => a.id);
+    if (seleccionados.length === avisosActivos.length) {
+      setSeleccionados([]);
+    } else {
+      setSeleccionados(avisosActivos);
     }
-    Alert.alert("¿Desactivar aviso?", aviso.titulo, [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Desactivar", style: "destructive", onPress: ejecutar },
-    ]);
+  };
+
+  const desactivarSeleccionados = () => {
+    if (seleccionados.length === 0) return;
+
+    confirmar({
+      titulo: `¿Desactivar ${seleccionados.length} avisos?`,
+      mensaje:
+        "Los avisos seleccionados ya no serán visibles para los aspirantes.",
+      textoConfirmar: "Sí, desactivar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const resultados = await Promise.all(
+          seleccionados.map((id) => desactivarAviso(id)),
+        );
+        if (resultados.some(Boolean)) {
+          setSeleccionados([]);
+          setModoSeleccion(false);
+          cargar();
+        } else {
+          avisar(
+            "Error",
+            "No se pudieron desactivar los avisos seleccionados.",
+          );
+        }
+      },
+    });
+  };
+
+  const handleDesactivar = (aviso: Aviso) => {
+    confirmar({
+      titulo: "¿Desactivar aviso?",
+      mensaje: `El aviso "${aviso.titulo}" ya no será visible para los aspirantes.`,
+      textoConfirmar: "Sí, desactivar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const ok = await desactivarAviso(aviso.id);
+        if (ok) cargar();
+        else avisar("Error", "No se pudo desactivar el aviso.");
+      },
+    });
   };
 
   return (
@@ -327,6 +385,17 @@ export default function GestionarAvisosScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
         <Text style={styles.topBarTitulo}>Avisos para aspirantes</Text>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() => {
+            setModoSeleccion((prev) => !prev);
+            setSeleccionados([]);
+          }}
+        >
+          <Text style={styles.secondaryActionText}>
+            {modoSeleccion ? "Cancelar" : "Seleccionar"}
+          </Text>
+        </Pressable>
       </View>
 
       <BannerPermisoNotificaciones />
@@ -340,20 +409,54 @@ export default function GestionarAvisosScreen() {
       ) : avisos.length === 0 ? (
         <Text style={styles.emptyText}>Aún no hay avisos publicados.</Text>
       ) : (
-        <FlatList
-          data={avisos}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.listContainer}
-          renderItem={({ item }) => (
-            <AvisoRow
-              aviso={item as any}
-              onDesactivar={() => handleDesactivar(item)}
-            />
+        <>
+          {modoSeleccion && (
+            <View style={styles.selectionBar}>
+              <Pressable
+                style={styles.selectionButton}
+                onPress={seleccionarTodos}
+              >
+                <Text style={styles.selectionButtonText}>
+                  {seleccionados.length ===
+                  avisos.filter((a) => a.activo).length
+                    ? "Quitar"
+                    : "Todos"}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.selectionButton,
+                  styles.selectionDeleteButton,
+                  seleccionados.length === 0 && { opacity: 0.5 },
+                ]}
+                onPress={desactivarSeleccionados}
+                disabled={seleccionados.length === 0}
+              >
+                <Text style={styles.selectionButtonText}>Desactivar</Text>
+              </Pressable>
+            </View>
           )}
-          refreshControl={
-            <RefreshControl refreshing={cargando} onRefresh={cargar} />
-          }
-        />
+
+          <FlatList
+            data={avisos}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={styles.listContainer}
+            renderItem={({ item }) => (
+              <AvisoRow
+                aviso={item as any}
+                onDesactivar={() => handleDesactivar(item)}
+                seleccionado={seleccionados.includes(item.id)}
+                modoSeleccion={modoSeleccion}
+                onToggleSeleccion={() =>
+                  item.activo && toggleSeleccion(item.id)
+                }
+              />
+            )}
+            refreshControl={
+              <RefreshControl refreshing={cargando} onRefresh={cargar} />
+            }
+          />
+        </>
       )}
 
       <Pressable
@@ -380,10 +483,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: "white",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
   topBarTitulo: { fontSize: 15, fontWeight: "600", color: ColoresApp.oscuro },
+  secondaryAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: ColoresApp.fondo,
+  },
+  secondaryActionText: {
+    color: ColoresApp.primario,
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  selectionBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: ColoresApp.primarioFondo,
+    borderBottomWidth: 1,
+    borderBottomColor: ColoresApp.borde,
+  },
+  selectionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: ColoresApp.primario,
+  },
+  selectionButtonText: {
+    color: "white",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  selectionDeleteButton: {
+    backgroundColor: ColoresApp.error,
+    marginLeft: 10,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: ColoresApp.borde,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: "auto",
+    marginRight: 8,
+  },
+  checkboxActivo: {
+    backgroundColor: ColoresApp.primario,
+    borderColor: ColoresApp.primario,
+  },
   emptyText: {
     marginTop: 100,
     textAlign: "center",
@@ -419,7 +575,12 @@ const styles = StyleSheet.create({
     boxShadow: "0 4px 6px #0000004D",
   },
   fabText: { color: "white", fontWeight: "bold", fontSize: 16 },
-  fabMovil: { paddingVertical: 14, paddingHorizontal: 14, bottom: 20, right: 16 },
+  fabMovil: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    bottom: 20,
+    right: 16,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

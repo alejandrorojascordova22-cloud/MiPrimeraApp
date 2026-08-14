@@ -8,6 +8,7 @@ import {
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
+import * as ScreenCapture from "expo-screen-capture";
 import * as ScreenOrientation from "expo-screen-orientation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -49,6 +50,8 @@ type Pregunta = {
   media_url?: string;
   modo_calificacion?: "inmediato" | "programado";
   fecha_publicacion?: string | null;
+  bloqueo_capturas?: boolean;
+  bloqueo_navegacion?: boolean;
 };
 
 type Aspirante = {
@@ -101,6 +104,15 @@ export default function PantallaExamen() {
   const salioEn = useRef<number | null>(null);
   const enviarExamenRef = useRef<(porTiempo?: boolean) => void>(() => {});
   const claveAlumno = `examen_${aspirante?.folio ?? "sin_folio"}`;
+
+  // --- Configuración de seguridad del bloque ---
+  // Si CUALQUIERA de los bloques que componen el examen del aspirante pide
+  // bloqueo de capturas o de navegación, se aplica a toda la sesión (no
+  // tendría sentido bajar la guardia a mitad del examen solo porque una
+  // de las materias no lo marcó).
+  const bloqueoCapturasActivo = preguntas.some((p) => p.bloqueo_capturas);
+  const bloqueoNavegacionActivo = preguntas.some((p) => p.bloqueo_navegacion);
+  const [contenidoOculto, setContenidoOculto] = useState(false);
 
   // --- Bloqueo de orientación y botón de retroceso ---
   useFocusEffect(
@@ -277,19 +289,67 @@ export default function PantallaExamen() {
     }
   }, []);
 
+  // --- Bloqueo de capturas de pantalla ---
+  // Solo se activa si algún bloque del examen lo pidió explícitamente
+  // (bloqueoCapturasActivo). En nativo (Android/iOS) se apoya en el
+  // sistema operativo vía expo-screen-capture, que sí puede impedir de
+  // verdad la captura/grabación de pantalla. En web no existe una API que
+  // impida una captura física (tecla ImprPant, herramientas del SO, otro
+  // dispositivo fotografiando la pantalla), así que ahí se aplican
+  // medidas disuasivas: bloquear el menú contextual, el copiado, y
+  // difuminar el contenido mientras la ventana pierde el foco (evita
+  // dejar la pregunta visible en apps de captura en segundo plano).
+  useEffect(() => {
+    if (!bloqueoCapturasActivo || !iniciado || enviado) return;
+
+    if (Platform.OS !== "web") {
+      ScreenCapture.preventScreenCaptureAsync().catch((error) => {
+        console.warn("No se pudo activar el bloqueo de capturas:", error);
+      });
+      return () => {
+        ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+      };
+    }
+
+    if (typeof document !== "undefined" && typeof window !== "undefined") {
+      const bloquearMenuOCopiado = (e: Event) => e.preventDefault();
+      const alPerderFoco = () => setContenidoOculto(true);
+      const alGanarFoco = () => setContenidoOculto(false);
+
+      document.addEventListener("contextmenu", bloquearMenuOCopiado);
+      document.addEventListener("copy", bloquearMenuOCopiado);
+      window.addEventListener("blur", alPerderFoco);
+      window.addEventListener("focus", alGanarFoco);
+
+      return () => {
+        document.removeEventListener("contextmenu", bloquearMenuOCopiado);
+        document.removeEventListener("copy", bloquearMenuOCopiado);
+        window.removeEventListener("blur", alPerderFoco);
+        window.removeEventListener("focus", alGanarFoco);
+        setContenidoOculto(false);
+      };
+    }
+  }, [bloqueoCapturasActivo, iniciado, enviado]);
+
   // --- Detección de cambio de estado de la app ---
   // Antes se contaba como "intento de salir" cualquier pérdida de foco,
   // incluso momentánea (por ejemplo, una notificación, cambiar de
   // pestaña un instante, o el navegador perdiendo el foco). Eso hacía que
   // el aviso apareciera todo el tiempo. Ahora solo cuenta si la app
   // permanece en segundo plano más de unos segundos, que es la señal real
-  // de que el aspirante salió de la aplicación.
+  // de que el aspirante salió de la aplicación — salvo que el bloque haya
+  // pedido "bloqueo de navegación" estricto, en cuyo caso CUALQUIER salida
+  // (sin importar cuánto haya durado, y sin margen de advertencia previa)
+  // anula el intento de inmediato.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (enviado || !iniciado) return;
 
       if (nextAppState === "background" || nextAppState === "inactive") {
         salioEn.current = Date.now();
+        if (bloqueoNavegacionActivo) {
+          enviarExamenRef.current(true);
+        }
         return;
       }
 
@@ -314,7 +374,7 @@ export default function PantallaExamen() {
     });
 
     return () => subscription.remove();
-  }, [enviado, iniciado]);
+  }, [enviado, iniciado, bloqueoNavegacionActivo]);
 
   const claveePendientes = `${claveAlumno}_pendientes`;
 
@@ -535,6 +595,8 @@ export default function PantallaExamen() {
         onCambiarAcepto={setAceptoProtocolo}
         onIniciar={() => setIniciado(true)}
         esEscritorio={esEscritorio}
+        bloqueoCapturasActivo={bloqueoCapturasActivo}
+        bloqueoNavegacionActivo={bloqueoNavegacionActivo}
       />
     );
   }
@@ -558,6 +620,15 @@ export default function PantallaExamen() {
         totalRespondidas={totalRespondidas}
         esEscritorio={esEscritorio}
       />
+
+      {contenidoOculto && (
+        <View style={styles.overlayOculto} pointerEvents="none">
+          <Ionicons name="eye-off-outline" size={28} color="white" />
+          <Text style={styles.overlayOcultoTexto}>
+            Contenido oculto por seguridad
+          </Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={[
@@ -680,6 +751,8 @@ const PantallaInstrucciones = ({
   onCambiarAcepto,
   onIniciar,
   esEscritorio,
+  bloqueoCapturasActivo,
+  bloqueoNavegacionActivo,
 }: {
   aspirante: Aspirante;
   totalPreguntas: number;
@@ -688,6 +761,8 @@ const PantallaInstrucciones = ({
   onCambiarAcepto: (valor: boolean) => void;
   onIniciar: () => void;
   esEscritorio?: boolean;
+  bloqueoCapturasActivo?: boolean;
+  bloqueoNavegacionActivo?: boolean;
 }) => (
   <SafeAreaView style={styles.instruccionesContainer}>
     <LinearGradient
@@ -797,8 +872,9 @@ const PantallaInstrucciones = ({
               <Text style={{ fontWeight: "700" }}>
                 Navegación restringida:{" "}
               </Text>
-              cambiar de ventana o pestaña durante el examen resultará en la
-              anulación automática del intento.
+              {bloqueoNavegacionActivo
+                ? "cambiar de ventana o pestaña, o salir de la app durante el examen, anulará tu intento de inmediato."
+                : "cambiar de ventana o pestaña durante el examen resultará en la anulación automática del intento tras una advertencia."}
             </Text>
           </View>
           <View style={styles.instruccionesProtocoloItem}>
@@ -811,8 +887,9 @@ const PantallaInstrucciones = ({
               <Text style={{ fontWeight: "700" }}>
                 Capturas de pantalla:{" "}
               </Text>
-              el sistema registra intentos de salir de la app o cambiar de
-              pestaña durante tu intento.
+              {bloqueoCapturasActivo
+                ? "las capturas y grabaciones de pantalla están bloqueadas durante el examen."
+                : "el sistema registra intentos de salir de la app o cambiar de pestaña durante tu intento."}
             </Text>
           </View>
 
@@ -1067,6 +1144,23 @@ const BotonesNavegacion = ({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF1F8" },
+  overlayOculto: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
+    backgroundColor: "rgba(15,17,32,0.96)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  overlayOcultoTexto: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 14,
+  },
   centered: {
     flex: 1,
     justifyContent: "center",

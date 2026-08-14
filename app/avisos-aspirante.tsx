@@ -57,7 +57,10 @@ const AvisoCard = ({
   >
     <View style={styles.cardHeader}>
       {!aviso.leido && <View style={styles.puntoNoLeido} />}
-      <Text style={styles.cardTitulo} numberOfLines={2}>
+      <Text
+        style={[styles.cardTitulo, aviso.leido && styles.cardTituloLeido]}
+        numberOfLines={2}
+      >
         {aviso.titulo}
       </Text>
       <Pressable
@@ -68,16 +71,21 @@ const AvisoCard = ({
         hitSlop={8}
       >
         <Ionicons
-          name="eye-off-outline"
+          name={aviso.leido ? "eye-outline" : "eye-off-outline"}
           size={18}
-          color={ColoresApp.textoSecundario}
+          color={aviso.leido ? ColoresApp.textoSecundario : ColoresApp.primario}
         />
       </Pressable>
     </View>
-    <Text style={styles.cardContenido} numberOfLines={3}>
+    <Text
+      style={[styles.cardContenido, aviso.leido && styles.cardContenidoLeido]}
+      numberOfLines={3}
+    >
       {aviso.contenido}
     </Text>
-    <Text style={styles.cardFecha}>{formatDate(aviso.creado_en)}</Text>
+    <Text style={[styles.cardFecha, aviso.leido && styles.cardFechaLeida]}>
+      {formatDate(aviso.creado_en)}
+    </Text>
   </Pressable>
 );
 
@@ -192,7 +200,9 @@ export default function AvisosAspiranteScreen() {
       <View style={styles.topBar}>
         <Pressable
           onPress={() =>
-            router.canGoBack() ? router.back() : router.replace('/perfil-aspirante')
+            router.canGoBack()
+              ? router.back()
+              : router.replace("/perfil-aspirante")
           }
           hitSlop={10}
         >
@@ -214,7 +224,11 @@ export default function AvisosAspiranteScreen() {
         <Text style={styles.emptyText}>No hay avisos por ahora.</Text>
       ) : (
         <FlatList
-          data={avisos.filter((a) => !a.leido)}
+          data={[...avisos].sort(
+            (a, b) =>
+              new Date(b.creado_en ?? 0).getTime() -
+              new Date(a.creado_en ?? 0).getTime(),
+          )}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContainer}
           renderItem={({ item }) => (
@@ -284,8 +298,8 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
-  cardNoLeida: { borderColor: ColoresApp.primario },
-  cardLeida: { opacity: 0.6 },
+  cardNoLeida: { borderColor: ColoresApp.primario, backgroundColor: "#FFFFFF" },
+  cardLeida: { opacity: 0.7, backgroundColor: "#F7F8FB" },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   puntoNoLeido: {
     width: 8,
@@ -299,8 +313,11 @@ const styles = StyleSheet.create({
     color: ColoresApp.oscuro,
     flex: 1,
   },
+  cardTituloLeido: { color: ColoresApp.textoSecundario },
   cardContenido: { fontSize: 13, color: ColoresApp.texto, marginTop: 6 },
+  cardContenidoLeido: { color: ColoresApp.textoSecundario },
   cardFecha: { fontSize: 11, color: ColoresApp.textoSecundario, marginTop: 8 },
+  cardFechaLeida: { color: ColoresApp.textoTerciario },
   modalBackdrop: {
     position: "absolute",
     top: 0,

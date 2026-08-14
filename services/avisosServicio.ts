@@ -77,7 +77,16 @@ export async function desactivarAvisoComoAdmin(avisoId: number): Promise<boolean
 /** Da de baja (soft delete) un aviso sin borrar su historial de lectura. */
 export async function desactivarAviso(avisoId: number): Promise<boolean> {
   try {
-    const { error } = await supabase.from('avisos').update({ activo: false }).eq('id', avisoId);
+    const okRpc = await desactivarAvisoComoAdmin(avisoId);
+    if (okRpc) return true;
+
+    const { error } = await supabase
+      .from('avisos')
+      .update({ activo: false })
+      .eq('id', avisoId)
+      .select('id')
+      .maybeSingle();
+
     if (error) throw error;
     return true;
   } catch (e) {

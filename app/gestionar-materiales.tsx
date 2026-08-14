@@ -1,22 +1,23 @@
+import { useConfirm } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import { obtenerCarreras } from "@/services/carrerasServicio";
 import {
-  ETIQUETAS_POR_TIPO_MATERIAL,
   actualizarInfoMaterial,
   asignarCarrerasMaterial,
   eliminarMaterialEstudio,
-  obtenerMaterialesEstudio,
+  ETIQUETAS_POR_TIPO_MATERIAL,
   formatearBytes,
   formatearTiempoRestante,
+  obtenerMaterialesEstudio,
   ProgresoSubida,
   reemplazarArchivoMaterial,
   subirMaterialEstudio,
 } from "@/services/materialesEstudioServicio";
+import { useResponsivo } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { useResponsivo } from "@/utils/responsive";
 import {
   ActivityIndicator,
   Alert,
@@ -115,11 +116,17 @@ const MaterialCard = ({
   onEdit,
   onDelete,
   onView,
+  seleccionado,
+  modoSeleccion,
+  onToggleSeleccion,
 }: {
   material: MaterialEstudio;
   onEdit: () => void;
   onDelete: () => void;
   onView: () => void;
+  seleccionado: boolean;
+  modoSeleccion: boolean;
+  onToggleSeleccion: () => void;
 }) => {
   const { icon, color } = getTipoInfo(material.tipo);
   const { esMovil } = useResponsivo();
@@ -140,6 +147,17 @@ const MaterialCard = ({
 
   return (
     <View style={styles.card}>
+      {modoSeleccion && (
+        <Pressable
+          onPress={onToggleSeleccion}
+          style={[styles.checkbox, seleccionado && styles.checkboxActivo]}
+          hitSlop={8}
+        >
+          {seleccionado && (
+            <Ionicons name="checkmark" size={12} color="white" />
+          )}
+        </Pressable>
+      )}
       <View style={[styles.iconContainer, { backgroundColor: `${color}20` }]}>
         <Ionicons name={icon} size={24} color={color} />
       </View>
@@ -162,7 +180,13 @@ const MaterialCard = ({
           )}
         </View>
         {esMovil && (
-          <View style={[styles.typeBadge, styles.typeBadgeMovil, { backgroundColor: `${color}20` }]}>
+          <View
+            style={[
+              styles.typeBadge,
+              styles.typeBadgeMovil,
+              { backgroundColor: `${color}20` },
+            ]}
+          >
             <Text style={[styles.typeBadgeText, { color }]}>
               {ETIQUETAS_POR_TIPO_MATERIAL[material.tipo] ??
                 material.tipo.toUpperCase()}
@@ -193,12 +217,12 @@ const MaterialCard = ({
         {/* En móvil los botones van en su propia fila, debajo del contenido,
             para no taparse con el título como pasaba con position:absolute. */}
         {esMovil && (
-          <View style={styles.actionsContainerMovil}>{botones}</View>
+          <View style={styles.actionsContainerMovil}>
+            {!modoSeleccion && botones}
+          </View>
         )}
       </View>
-      {!esMovil && (
-        <View style={styles.actionsContainer}>{botones}</View>
-      )}
+      {!esMovil && <View style={styles.actionsContainer}>{botones}</View>}
     </View>
   );
 };
@@ -723,7 +747,10 @@ export default function GestionarMaterialesScreen() {
   const [modalSubirVisible, setModalSubirVisible] = useState(false);
   const [materialEditando, setMaterialEditando] =
     useState<MaterialEstudio | null>(null);
+  const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [seleccionados, setSeleccionados] = useState<number[]>([]);
   const [editorKey, setEditorKey] = useState(0);
+  const confirmar = useConfirm();
 
   const avisar = (titulo: string, mensaje?: string) => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -759,41 +786,61 @@ export default function GestionarMaterialesScreen() {
   }, [cargar]); // `cargar` está envuelto en useCallback, por lo que este efecto solo se ejecuta una vez.
 
   const handleEliminar = (material: MaterialEstudio) => {
-    const ejecutarEliminar = async () => {
-      const exito = await eliminarMaterialEstudio(material);
-      if (exito) {
-        cargar();
-      } else {
-        console.error("eliminarMaterialEstudio falló para id:", material.id);
-        avisar("Error", "No se pudo eliminar el documento.");
-      }
-    };
+    confirmar({
+      titulo: "¿Eliminar documento?",
+      mensaje: `Se eliminará "${material.titulo}" de forma permanente.`,
+      textoConfirmar: "Eliminar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const exito = await eliminarMaterialEstudio(material);
+        if (exito) {
+          cargar();
+        } else {
+          console.error("eliminarMaterialEstudio falló para id:", material.id);
+          avisar("Error", "No se pudo eliminar el documento.");
+        }
+      },
+    });
+  };
 
-    // Alert.alert con botones no muestra ningún diálogo en web (queda en
-    // silencio), así que ahí usamos window.confirm en su lugar.
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      if (
-        window.confirm(
-          `¿Eliminar "${material.titulo}"? Se eliminará de forma permanente.`,
-        )
-      ) {
-        ejecutarEliminar();
-      }
+  const toggleSeleccion = (id: number) => {
+    setSeleccionados((prev) =>
+      prev.includes(id)
+        ? prev.filter((current) => current !== id)
+        : [...prev, id],
+    );
+  };
+
+  const seleccionarTodos = () => {
+    if (seleccionados.length === materiales.length) {
+      setSeleccionados([]);
       return;
     }
+    setSeleccionados(materiales.map((material) => material.id));
+  };
 
-    Alert.alert(
-      "¿Eliminar documento?",
-      `Se eliminará "${material.titulo}" de forma permanente.`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: ejecutarEliminar,
-        },
-      ],
-    );
+  const eliminarSeleccionados = async () => {
+    if (seleccionados.length === 0) return;
+    const ids = [...seleccionados];
+
+    confirmar({
+      titulo: "Eliminar materiales",
+      mensaje: `¿Eliminar ${ids.length} materiales seleccionados de forma permanente?`,
+      textoConfirmar: "Eliminar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const resultados = await Promise.all(
+          ids.map((id) => eliminarMaterialEstudio({ id } as MaterialEstudio)),
+        );
+        if (resultados.some(Boolean)) {
+          setSeleccionados([]);
+          setModoSeleccion(false);
+          await cargar();
+        } else {
+          avisar("Error", "No se pudo eliminar la selección de materiales.");
+        }
+      },
+    });
   };
 
   const handleVer = (material: MaterialEstudio) => {
@@ -827,6 +874,9 @@ export default function GestionarMaterialesScreen() {
               setMaterialEditando(item);
             }}
             onDelete={() => handleEliminar(item)}
+            seleccionado={seleccionados.includes(item.id)}
+            modoSeleccion={modoSeleccion}
+            onToggleSeleccion={() => toggleSeleccion(item.id)}
           />
         )}
         contentContainerStyle={styles.listContainer}
@@ -841,8 +891,40 @@ export default function GestionarMaterialesScreen() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitulo}>Materiales de estudio</Text>
+        <Text style={styles.topBarTitulo}>Materiales de Estudio</Text>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() => {
+            setModoSeleccion((prev) => !prev);
+            setSeleccionados([]);
+          }}
+        >
+          <Text style={styles.secondaryActionText}>
+            {modoSeleccion ? "Cancelar" : "Seleccionar"}
+          </Text>
+        </Pressable>
       </View>
+
+      {modoSeleccion && (
+        <View style={styles.selectionBar}>
+          <Pressable style={styles.selectionButton} onPress={seleccionarTodos}>
+            <Text style={styles.selectionButtonText}>
+              {seleccionados.length === materiales.length ? "Quitar" : "Todos"}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.selectionButton,
+              styles.selectionDeleteButton,
+              seleccionados.length === 0 && { opacity: 0.5 },
+            ]}
+            onPress={eliminarSeleccionados}
+            disabled={seleccionados.length === 0}
+          >
+            <Text style={styles.selectionButtonText}>Eliminar</Text>
+          </Pressable>
+        </View>
+      )}
       {renderContent()}
       <Pressable
         style={[styles.fab, esMovil && styles.fabMovil]}
@@ -883,6 +965,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: "white",
+    flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
@@ -1100,5 +1183,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: ColoresApp.primario,
     fontWeight: "600",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: ColoresApp.borde,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  checkboxActivo: {
+    backgroundColor: ColoresApp.primario,
+    borderColor: ColoresApp.primario,
+  },
+  secondaryAction: {
+    marginLeft: "auto",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: ColoresApp.fondo,
+  },
+  secondaryActionText: {
+    color: ColoresApp.primario,
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  selectionBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: ColoresApp.primarioFondo,
+    borderBottomWidth: 1,
+    borderBottomColor: ColoresApp.borde,
+  },
+  selectionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: ColoresApp.primario,
+  },
+  selectionButtonText: {
+    color: "white",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  selectionDeleteButton: {
+    backgroundColor: ColoresApp.error,
+    marginLeft: 10,
   },
 });

@@ -25,6 +25,7 @@ import {
     SafeAreaView,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TextInput,
     useWindowDimensions,
@@ -1227,6 +1228,8 @@ const EditorBloqueModal = ({
     carreraIds: number[];
     modoCalificacion: "inmediato" | "programado";
     fechaPublicacion: string | null;
+    bloqueoCapturas: boolean;
+    bloqueoNavegacion: boolean;
     preguntas: PreguntaEnEdicion[];
   }) => Promise<void>;
   carrerasDisponibles: CarreraRef[];
@@ -1303,6 +1306,12 @@ const EditorBloqueModal = ({
   >(
     () => new Set((bloqueInicial?.carreras ?? []).map((c: CarreraRef) => c.id)),
   );
+  const [bloqueoCapturas, setBloqueoCapturas] = useState<boolean>(
+    bloqueInicial?.bloqueo_capturas ?? false,
+  );
+  const [bloqueoNavegacion, setBloqueoNavegacion] = useState<boolean>(
+    bloqueInicial?.bloqueo_navegacion ?? false,
+  );
   const [preguntas, setPreguntas] =
     useState<PreguntaEnEdicion[]>(preguntasIniciales);
   const [guardando, setGuardando] = useState(false);
@@ -1367,6 +1376,10 @@ const EditorBloqueModal = ({
                 setModoCalificacion(borrador.modoCalificacion);
               if (borrador.fechaPublicacion !== undefined)
                 setFechaPublicacion(borrador.fechaPublicacion);
+              if (borrador.bloqueoCapturas !== undefined)
+                setBloqueoCapturas(borrador.bloqueoCapturas);
+              if (borrador.bloqueoNavegacion !== undefined)
+                setBloqueoNavegacion(borrador.bloqueoNavegacion);
               if (Array.isArray(borrador.carreraIds))
                 setCarrerasSeleccionadas(new Set(borrador.carreraIds));
               if (Array.isArray(borrador.preguntas))
@@ -1408,6 +1421,8 @@ const EditorBloqueModal = ({
           duracion,
           modoCalificacion,
           fechaPublicacion,
+          bloqueoCapturas,
+          bloqueoNavegacion,
           carreraIds: Array.from(carrerasSeleccionadas),
           preguntas,
           guardadoEn: new Date().toISOString(),
@@ -1430,6 +1445,8 @@ const EditorBloqueModal = ({
     duracion,
     modoCalificacion,
     fechaPublicacion,
+    bloqueoCapturas,
+    bloqueoNavegacion,
     carrerasSeleccionadas,
     preguntas,
     borradorRevisado,
@@ -1558,6 +1575,8 @@ const EditorBloqueModal = ({
         carreraIds: Array.from(carrerasSeleccionadas),
         modoCalificacion: modoCalificacion,
         fechaPublicacion: fechaPublicacionISO,
+        bloqueoCapturas,
+        bloqueoNavegacion,
         preguntas,
       });
       // Se publicó correctamente: el respaldo local ya no es necesario.
@@ -1679,6 +1698,46 @@ const EditorBloqueModal = ({
                   </Pressable>
                 );
               })}
+            </View>
+          </View>
+
+          <View style={styles.campoGrupo}>
+            <Text style={styles.campoLabel}>Seguridad</Text>
+
+            <View style={styles.filaSeguridad}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.filaSeguridadTitulo}>
+                  Bloquear capturas de pantalla
+                </Text>
+                <Text style={styles.hintTexto}>
+                  Evita capturas/grabación de pantalla durante el examen (app
+                  nativa). En navegador, difumina el contenido y bloquea el
+                  menú contextual y el copiado como medida disuasiva.
+                </Text>
+              </View>
+              <Switch
+                value={bloqueoCapturas}
+                onValueChange={setBloqueoCapturas}
+                trackColor={{ true: ACCENT.primario }}
+              />
+            </View>
+
+            <View style={styles.filaSeguridad}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.filaSeguridadTitulo}>
+                  Bloquear cambio de ventana/pestaña
+                </Text>
+                <Text style={styles.hintTexto}>
+                  Anula el intento en cuanto el aspirante cambia de pestaña,
+                  minimiza la app o se va a otra ventana, sin margen de
+                  advertencia.
+                </Text>
+              </View>
+              <Switch
+                value={bloqueoNavegacion}
+                onValueChange={setBloqueoNavegacion}
+                trackColor={{ true: ACCENT.primario }}
+              />
             </View>
           </View>
         </View>
@@ -2032,6 +2091,8 @@ export default function GestionarPreguntasScreen() {
     carreraIds,
     modoCalificacion,
     fechaPublicacion,
+    bloqueoCapturas,
+    bloqueoNavegacion,
     preguntas: preguntasEditadas,
   }: {
     examenId?: number;
@@ -2041,6 +2102,8 @@ export default function GestionarPreguntasScreen() {
     carreraIds: number[];
     modoCalificacion: "inmediato" | "programado";
     fechaPublicacion: string | null;
+    bloqueoCapturas: boolean;
+    bloqueoNavegacion: boolean;
     preguntas: PreguntaEnEdicion[];
   }) => {
     const payloadPreguntas = preguntasEditadas.map((p) => {
@@ -2065,6 +2128,8 @@ export default function GestionarPreguntasScreen() {
           duracion_examen: duracionExamen,
           modo_calificacion: modoCalificacion,
           fecha_publicacion: fechaPublicacion,
+          bloqueo_capturas: bloqueoCapturas,
+          bloqueo_navegacion: bloqueoNavegacion,
         });
         const okCarreras = await vincularCarrerasAExamen(examenId, carreraIds);
         const okPreguntas = await reemplazarPreguntasDeExamen(
@@ -2084,6 +2149,8 @@ export default function GestionarPreguntasScreen() {
           duracion_examen: duracionExamen,
           modo_calificacion: modoCalificacion,
           fecha_publicacion: fechaPublicacion,
+          bloqueo_capturas: bloqueoCapturas,
+          bloqueo_navegacion: bloqueoNavegacion,
         });
         if (!examen) {
           Alert.alert("Error", "No se pudo crear el bloque.");
@@ -2635,6 +2702,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontStyle: "italic",
     color: ACCENT.textoTenue,
+  },
+  filaSeguridad: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: ACCENT.borde,
+  },
+  filaSeguridadTitulo: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: ACCENT.texto,
+    marginBottom: 2,
   },
   input: {
     borderWidth: 1,

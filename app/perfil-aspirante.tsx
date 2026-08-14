@@ -1,14 +1,21 @@
 import { ColoresApp } from "@/constants/coloresApp";
+import { construirLinkWhatsappSoporte } from "@/constants/soporte";
 import { useTema } from "@/hooks/useTema";
 import type { TemaConfig } from "@/services/temaConfig";
-import { construirPaletaAspirante, type PaletaAspirante } from "@/utils/temaPaleta";
+import {
+  construirPaletaAspirante,
+  type PaletaAspirante,
+} from "@/utils/temaPaleta";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Print from "expo-print";
 import {
   Stack,
   useFocusEffect,
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
+import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -299,9 +306,7 @@ export default function PantallaPerfilAspirante() {
       // cualquier canal previo con el mismo topic ya esté completamente
       // removido.
       const topic = `realtime:asistencia-aspirante-${aspirante.id}`;
-      const canalPrevio = supabase
-        .getChannels()
-        .find((c) => c.topic === topic);
+      const canalPrevio = supabase.getChannels().find((c) => c.topic === topic);
       if (canalPrevio) {
         console.log(
           "[Notif] removiendo canal realtime previo antes de recrear",
@@ -904,6 +909,28 @@ const Sidebar = ({
                 color={theme.textoSecundario}
               />
             </Pressable>
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => {
+                setAyudaVisible(false);
+                setMostrarManual(false);
+                Linking.openURL(
+                  construirLinkWhatsappSoporte(
+                    "Hola, necesito ayuda con mi proceso de admisión.",
+                  ),
+                );
+              }}
+            >
+              <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+              <Text style={styles.ayudaOpcionTexto}>
+                Contactar por WhatsApp
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1141,9 +1168,280 @@ const CardExamen = ({ disponible, asistencia, onIniciar }: any) => (
   </Card>
 );
 
+/**
+ * Genera un PDF con la calificación del aspirante y abre el sheet nativo
+ * para compartirlo (en web, se descarga directamente el archivo).
+ */
+async function compartirResultadoPDF(aspirante: Aspirante) {
+  const calificacion = aspirante.resultado;
+  const aprobado = calificacion != null && calificacion >= 70;
+  const fechaActual = new Date().toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  const aciertos = aspirante.aciertos != null ? aspirante.aciertos : 0;
+  const estadoTexto = aprobado ? "Aprobado" : "Reprobado";
+  const nombreArchivo = `resultado-${aspirante.folio || "aspirante"}.pdf`;
+
+  const html = `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            font-family: Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #F5F3FB;
+            color: #1E1B29;
+          }
+          .page {
+            width: 100%;
+            max-width: 760px;
+            margin: 28px auto;
+            background: #FFFFFF;
+            border: 1px solid #E9E3F8;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(28, 21, 46, 0.08);
+          }
+          .header {
+            background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);
+            padding: 26px 28px 22px;
+            color: #FFFFFF;
+          }
+          .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+          }
+          .brand {
+            font-size: 11px;
+            letter-spacing: 1.4px;
+            opacity: 0.9;
+            font-weight: 700;
+            text-transform: uppercase;
+          }
+          .fecha {
+            font-size: 11px;
+            opacity: 0.85;
+            text-align: right;
+          }
+          .titulo {
+            margin: 0;
+            font-size: 28px;
+            line-height: 1.2;
+            font-weight: 800;
+          }
+          .subtitulo {
+            margin: 8px 0 0;
+            font-size: 13px;
+            opacity: 0.92;
+          }
+          .body {
+            padding: 28px;
+          }
+          .summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 16px;
+            margin-bottom: 22px;
+          }
+          .score-box {
+            flex: 1;
+            background: ${aprobado ? "#ECFDF5" : "#FEF2F2"};
+            border: 1px solid ${aprobado ? "#BBF7D0" : "#FECACA"};
+            border-radius: 16px;
+            padding: 18px;
+            text-align: center;
+          }
+          .score {
+            font-size: 44px;
+            font-weight: 900;
+            line-height: 1;
+            color: ${aprobado ? "#15803D" : "#B91C1C"};
+          }
+          .state {
+            margin-top: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: ${aprobado ? "#15803D" : "#B91C1C"};
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+          }
+          .meta {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+          .meta-item {
+            background: #F8F6FD;
+            border: 1px solid #E9E3F8;
+            border-radius: 12px;
+            padding: 12px 14px;
+          }
+          .label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            color: #8B8698;
+            margin-bottom: 4px;
+            font-weight: 700;
+          }
+          .value {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1E1B29;
+          }
+          .datos {
+            border-top: 1px solid #E9E3F8;
+            padding-top: 18px;
+          }
+          .grid {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+          }
+          .dato {
+            flex: 1 1 200px;
+            background: #FAF9FF;
+            border: 1px solid #E9E3F8;
+            border-radius: 12px;
+            padding: 12px;
+          }
+          .dato .label {
+            margin-bottom: 7px;
+          }
+          .dato .value {
+            font-size: 13px;
+            color: #1E1B29;
+          }
+          .footer {
+            padding: 18px 28px 30px;
+            text-align: center;
+            font-size: 11px;
+            color: #847D97;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <div class="header">
+            <div class="header-top">
+              <div class="brand">UT de Oriental</div>
+              <div class="fecha">${fechaActual}</div>
+            </div>
+            <h1 class="titulo">Constancia de resultado</h1>
+            <p class="subtitulo">Examen de admisión 2026</p>
+          </div>
+
+          <div class="body">
+            <div class="summary">
+              <div class="score-box">
+                <div class="score">${calificacion ?? "-"}</div>
+                <div class="state">${estadoTexto}</div>
+              </div>
+
+              <div class="meta">
+                <div class="meta-item">
+                  <div class="label">Nombre</div>
+                  <div class="value">${aspirante.nombre ?? "-"}</div>
+                </div>
+                <div class="meta-item">
+                  <div class="label">Folio</div>
+                  <div class="value">${aspirante.folio ?? "-"}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="datos">
+              <div class="grid">
+                <div class="dato">
+                  <div class="label">Carrera</div>
+                  <div class="value">${aspirante.carreraNombre ?? "-"}</div>
+                </div>
+                <div class="dato">
+                  <div class="label">Correo</div>
+                  <div class="value">${aspirante.correo ?? "-"}</div>
+                </div>
+                <div class="dato">
+                  <div class="label">Aciertos</div>
+                  <div class="value">${aciertos}</div>
+                </div>
+                <div class="dato">
+                  <div class="label">Resultado</div>
+                  <div class="value">${estadoTexto}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            Documento generado automáticamente para el aspirante. Este comprobante es personal y no sustituye la validación oficial del proceso de admisión.
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  if (Platform.OS === "web") {
+    const printResult = await Print.printToFileAsync({ html, base64: true });
+
+    if (printResult && printResult.base64) {
+      const enlace = document.createElement("a");
+      enlace.href = `data:application/pdf;base64,${printResult.base64}`;
+      enlace.download = nombreArchivo;
+      document.body.appendChild(enlace);
+      enlace.click();
+      document.body.removeChild(enlace);
+    } else {
+      const ventana = window.open("", "_blank");
+      if (ventana) {
+        ventana.document.write(html);
+        ventana.document.close();
+        setTimeout(() => ventana.print(), 500);
+      }
+    }
+    return;
+  }
+
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Compartir constancia de resultado",
+      UTI: "com.adobe.pdf",
+    });
+  } else {
+    Alert.alert(
+      "Resultado generado",
+      "El PDF se generó pero no se pudo abrir el menú para compartirlo.",
+    );
+  }
+}
+
 const CardResultado = ({ aspirante }: { aspirante: Aspirante }) => {
   const enRevision = aspirante.estado === "en_revision";
   const calificacion = aspirante.resultado;
+  const [compartiendo, setCompartiendo] = useState(false);
+
+  const handleCompartir = useCallback(async () => {
+    if (compartiendo) return;
+    setCompartiendo(true);
+    try {
+      await compartirResultadoPDF(aspirante);
+    } catch (error) {
+      console.error("Error al compartir resultado:", error);
+      Alert.alert("Error", "No se pudo generar el resultado para compartir.");
+    } finally {
+      setCompartiendo(false);
+    }
+  }, [aspirante, compartiendo]);
   const modoCalificacion = aspirante.modo_calificacion;
   const fechaPublicacion = aspirante.fecha_publicacion_calificacion
     ? new Date(aspirante.fecha_publicacion_calificacion)
@@ -1233,6 +1531,39 @@ const CardResultado = ({ aspirante }: { aspirante: Aspirante }) => {
               </View>
             </>
           )}
+          <SizedBox height={14} />
+          <Pressable
+            style={[
+              styles.botonCompartirResultado,
+              { borderColor: theme.borde },
+            ]}
+            onPress={handleCompartir}
+            disabled={compartiendo}
+          >
+            {compartiendo ? (
+              <ActivityIndicator size="small" color={theme.morado} />
+            ) : (
+              <Ionicons
+                name={
+                  Platform.OS === "web" ? "download-outline" : "share-outline"
+                }
+                size={16}
+                color={theme.morado}
+              />
+            )}
+            <Text
+              style={[
+                styles.textoBotonCompartirResultado,
+                { color: theme.morado },
+              ]}
+            >
+              {compartiendo
+                ? "Generando..."
+                : Platform.OS === "web"
+                  ? "Descargar resultado"
+                  : "Compartir resultado"}
+            </Text>
+          </Pressable>
         </>
       ) : (
         <View
@@ -1876,6 +2207,28 @@ const DrawerMovil = ({
                 color={theme.textoSecundario}
               />
             </Pressable>
+            <Pressable
+              style={styles.ayudaOpcion}
+              onPress={() => {
+                setAyudaVisible(false);
+                setMostrarManual(false);
+                Linking.openURL(
+                  construirLinkWhatsappSoporte(
+                    "Hola, necesito ayuda con mi proceso de admisión.",
+                  ),
+                );
+              }}
+            >
+              <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+              <Text style={styles.ayudaOpcionTexto}>
+                Contactar por WhatsApp
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={theme.textoSecundario}
+              />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1972,7 +2325,123 @@ const CampoTextoModal = ({ etiqueta, ...props }: any) => (
 
 const ModalQR = ({ visible, onClose, aspirante }: any) => {
   const qrPayload = `${aspirante.folio}|${aspirante.correo}`;
+  // El QR de la pantalla (imagen en pantalla) se genera con este mismo
+  // servicio de terceros solo para la vista previa en vivo.
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPayload)}&bgcolor=ffffff&color=5b21b6&margin=12`;
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+
+  const descargarPdf = useCallback(async () => {
+    if (generandoPdf) return;
+    setGenerandoPdf(true);
+    try {
+      // El QR del PDF se genera 100% localmente (sin depender
+      // de internet). Antes se descargaba desde una API externa
+      // (api.qrserver.com) y, si esa descarga fallaba o tardaba (por red,
+      // CORS, o el entorno donde corre la app), el QR salía en blanco en
+      // el PDF impreso, como se vio en el reporte. Generándolo como SVG
+      // local con la librería "qrcode" eliminamos ese punto de falla.
+      const QRCode = (await import("qrcode")).default;
+      const qrSvg = await QRCode.toString(qrPayload, {
+        type: "svg",
+        margin: 1,
+        width: 200,
+        color: { dark: "#5B21B6", light: "#FFFFFFFF" },
+      });
+
+      const html = `
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <style>
+              * { box-sizing: border-box; font-family: -apple-system, Helvetica, Arial, sans-serif; }
+              body { margin: 0; padding: 40px; background: #F5F3FB; }
+              .card {
+                max-width: 460px;
+                margin: 0 auto;
+                background: #FFFFFF;
+                border-radius: 24px;
+                overflow: hidden;
+                border: 1px solid #ECE9F4;
+              }
+              .header {
+                background: linear-gradient(135deg, #7C3AED, #5B21B6);
+                padding: 28px 24px;
+                color: #FFFFFF;
+                text-align: center;
+              }
+              .header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
+              .header p { margin: 6px 0 0; font-size: 12px; opacity: 0.85; }
+              .body { padding: 28px 24px; text-align: center; }
+              .qr { width: 180px; height: 180px; border-radius: 16px; border: 1px solid #ECE9F4; padding: 10px; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+              .qr svg { width: 100%; height: 100%; }
+              .folio { margin-top: 18px; font-size: 20px; font-weight: 800; color: #5B21B6; letter-spacing: 1.4px; }
+              .nombre { margin-top: 4px; font-size: 14px; color: #8B8698; }
+              .datos { margin-top: 24px; text-align: left; border-top: 1px solid #ECE9F4; padding-top: 18px; }
+              .fila { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; color: #1E1B29; }
+              .fila span:first-child { color: #8B8698; font-weight: 600; }
+              .footer { padding: 16px 24px; text-align: center; font-size: 10px; color: #B4AFC2; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="header">
+                <h1>Acceso al examen</h1>
+                <p>Presenta este documento el día del examen en la sede</p>
+              </div>
+              <div class="body">
+                <div class="qr">${qrSvg}</div>
+                <div class="folio">${aspirante.folio ?? ""}</div>
+                <div class="nombre">${aspirante.nombre ?? ""}</div>
+                <div class="datos">
+                  <div class="fila"><span>Carrera</span><span>${aspirante.carreraNombre ?? "-"}</span></div>
+                  <div class="fila"><span>Correo</span><span>${aspirante.correo ?? "-"}</span></div>
+                </div>
+              </div>
+              <div class="footer">Generado automáticamente · UT de Oriental</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const nombreArchivo = `acceso-examen-${aspirante.folio || "aspirante"}.pdf`;
+
+      if (Platform.OS === "web") {
+        // En web, en vez de abrir el diálogo de impresión del navegador,
+        // generamos el PDF en base64 y forzamos la descarga real del
+        // archivo, tal como se pidió (exportar/compartir el resultado,
+        // no imprimirlo).
+        const { base64 } = await Print.printToFileAsync({
+          html,
+          base64: true,
+        });
+        const enlace = document.createElement("a");
+        enlace.href = `data:application/pdf;base64,${base64}`;
+        enlace.download = nombreArchivo;
+        document.body.appendChild(enlace);
+        enlace.click();
+        document.body.removeChild(enlace);
+      } else {
+        const { uri } = await Print.printToFileAsync({ html, base64: false });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: "application/pdf",
+            dialogTitle: "Documento de acceso",
+            UTI: "com.adobe.pdf",
+          });
+        } else {
+          Alert.alert(
+            "Documento generado",
+            "El archivo se generó pero no se pudo abrir el menú para compartirlo.",
+          );
+        }
+      }
+    } catch {
+      Alert.alert("Error", "No se pudo generar el documento.");
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }, [aspirante, generandoPdf, qrPayload]);
+
   return (
     <Modal
       visible={visible}
@@ -1991,9 +2460,9 @@ const ModalQR = ({ visible, onClose, aspirante }: any) => {
             <Ionicons name="close" size={20} color={theme.gris} />
           </Pressable>
           <SizedBox height={4} />
-          <Text style={styles.modalTitle}>Pase de ingreso</Text>
+          <Text style={styles.modalTitle}>Acceso al examen</Text>
           <Text style={styles.modalSubtitle}>
-            Preséntalo el día del examen en la sede
+            Muéstralo el día del examen en la sede
           </Text>
           <SizedBox height={22} />
           <View style={styles.qrCodeWrapper}>
@@ -2007,6 +2476,32 @@ const ModalQR = ({ visible, onClose, aspirante }: any) => {
           <SizedBox height={4} />
           <Text style={styles.qrNombre}>{aspirante.nombre}</Text>
           <SizedBox height={22} />
+          <Pressable
+            style={{ width: "100%" }}
+            onPress={descargarPdf}
+            disabled={generandoPdf}
+          >
+            <LinearGradient
+              colors={[theme.morado, theme.moradoOscuro]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.botonDescargarComprobante}
+            >
+              {generandoPdf ? (
+                <ActivityIndicator size="small" color={theme.blanco} />
+              ) : (
+                <Ionicons
+                  name="download-outline"
+                  size={17}
+                  color={theme.blanco}
+                />
+              )}
+              <Text style={styles.textoBotonDescargarComprobante}>
+                {generandoPdf ? "Generando..." : "Descargar"}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+          <SizedBox height={10} />
           <Pressable style={{ width: "100%" }} onPress={onClose}>
             <Text
               style={{
@@ -2037,453 +2532,496 @@ const ModalQR = ({ visible, onClose, aspirante }: any) => {
 // los estilos con los colores actuales de `theme`.
 function construirEstilos() {
   return StyleSheet.create({
-  appShell: { flex: 1, flexDirection: "row", backgroundColor: "transparent" },
-  mainColumn: { flex: 1, position: "relative" },
+    appShell: { flex: 1, flexDirection: "row", backgroundColor: "transparent" },
+    mainColumn: { flex: 1, position: "relative" },
 
-  // Sidebar
-  sidebar: {
-    width: 250,
-    backgroundColor: theme.sidebarBg,
-    paddingTop: 20,
-    paddingBottom: 4,
-  },
-  sidebarCollapsed: { width: 76, alignItems: "center", paddingHorizontal: 0 },
-  sidebarLogoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 18,
-  },
-  sidebarLogoBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: theme.morado,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  sidebarLogoTitle: { color: theme.blanco, fontWeight: "800", fontSize: 14 },
-  sidebarLogoSubtitle: { color: theme.sidebarTexto, fontSize: 10 },
-  sidebarNavItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 2,
-  },
-  sidebarNavItemActivo: { backgroundColor: theme.morado },
-  sidebarNavText: {
-    color: theme.sidebarTexto,
-    fontSize: 13,
-    marginLeft: 12,
-    fontWeight: "600",
-  },
-  // Punto rojo sobre el ícono (se ve cuando el sidebar está colapsado).
-  sidebarBadge: {
-    position: "absolute",
-    top: -3,
-    right: -4,
-    minWidth: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: theme.rojo,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  // Pastilla con número al lado del texto (sidebar expandido / drawer).
-  sidebarBadgePill: {
-    marginLeft: "auto",
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.rojo,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-  },
-  sidebarBadgeTexto: {
-    color: theme.blanco,
-    fontSize: 10,
-    fontWeight: "700",
-  },
+    // Sidebar
+    sidebar: {
+      width: 250,
+      backgroundColor: theme.sidebarBg,
+      paddingTop: 20,
+      paddingBottom: 4,
+    },
+    sidebarCollapsed: { width: 76, alignItems: "center", paddingHorizontal: 0 },
+    sidebarLogoRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 18,
+    },
+    sidebarLogoBox: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      backgroundColor: theme.morado,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    sidebarLogoTitle: { color: theme.blanco, fontWeight: "800", fontSize: 14 },
+    sidebarLogoSubtitle: { color: theme.sidebarTexto, fontSize: 10 },
+    sidebarNavItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 11,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      marginBottom: 2,
+    },
+    sidebarNavItemActivo: { backgroundColor: theme.morado },
+    sidebarNavText: {
+      color: theme.sidebarTexto,
+      fontSize: 13,
+      marginLeft: 12,
+      fontWeight: "600",
+    },
+    // Punto rojo sobre el ícono (se ve cuando el sidebar está colapsado).
+    sidebarBadge: {
+      position: "absolute",
+      top: -3,
+      right: -4,
+      minWidth: 14,
+      height: 14,
+      borderRadius: 7,
+      backgroundColor: theme.rojo,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 2,
+    },
+    // Pastilla con número al lado del texto (sidebar expandido / drawer).
+    sidebarBadgePill: {
+      marginLeft: "auto",
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: theme.rojo,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 5,
+    },
+    sidebarBadgeTexto: {
+      color: theme.blanco,
+      fontSize: 10,
+      fontWeight: "700",
+    },
 
-  floatingMenuButton: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    zIndex: 10,
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: theme.blanco,
-    borderWidth: 1,
-    borderColor: theme.borde,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 3,
-  },
+    floatingMenuButton: {
+      position: "absolute",
+      top: 14,
+      left: 14,
+      zIndex: 10,
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: theme.blanco,
+      borderWidth: 1,
+      borderColor: theme.borde,
+      justifyContent: "center",
+      alignItems: "center",
+      elevation: 3,
+    },
 
-  // Contenido
-  scrollContent: { padding: 20, paddingBottom: 48 },
-  contentContainer: { maxWidth: 980, width: "100%", alignSelf: "center" },
+    // Contenido
+    scrollContent: { padding: 20, paddingBottom: 48 },
+    contentContainer: { maxWidth: 980, width: "100%", alignSelf: "center" },
 
-  profileHeaderCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    rowGap: 14,
-    // "CC" = ~80% de opacidad: deja pasar la imagen de fondo detrás pero
-    // conserva suficiente contraste para que el texto siga siendo legible.
-    backgroundColor: theme.blanco + "CC",
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: theme.borde,
-  },
-  headerTitle: { fontSize: 19, fontWeight: "800", color: theme.texto },
-  headerSubtitle: {
-    fontSize: 10,
-    fontWeight: "bold",
-    letterSpacing: 1,
-    color: theme.textoSecundario,
-    marginTop: 2,
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 99,
-    alignSelf: "flex-start",
-  },
-  statusBadgeDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
-  statusBadgeText: { fontSize: 10, fontWeight: "bold", letterSpacing: 0.4 },
-  profileHeaderActions: { flexDirection: "row", marginLeft: "auto" },
-  botonPrimario: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: theme.morado,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  textoBotonPrimario: {
-    color: theme.blanco,
-    fontWeight: "700",
-    fontSize: 13,
-    marginLeft: 6,
-  },
-  botonSecundario: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: theme.blanco,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderWidth: 1,
-    borderColor: theme.borde,
-  },
-  textoBotonSecundario: {
-    color: theme.texto,
-    fontWeight: "700",
-    fontSize: 13,
-    marginLeft: 6,
-  },
+    profileHeaderCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      rowGap: 14,
+      // "CC" = ~80% de opacidad: deja pasar la imagen de fondo detrás pero
+      // conserva suficiente contraste para que el texto siga siendo legible.
+      backgroundColor: theme.blanco + "CC",
+      borderRadius: 20,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: theme.borde,
+    },
+    headerTitle: { fontSize: 19, fontWeight: "800", color: theme.texto },
+    headerSubtitle: {
+      fontSize: 10,
+      fontWeight: "bold",
+      letterSpacing: 1,
+      color: theme.textoSecundario,
+      marginTop: 2,
+    },
+    statusBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 99,
+      alignSelf: "flex-start",
+    },
+    statusBadgeDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+    statusBadgeText: { fontSize: 10, fontWeight: "bold", letterSpacing: 0.4 },
+    profileHeaderActions: { flexDirection: "row", marginLeft: "auto" },
+    botonPrimario: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: theme.morado,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+    },
+    textoBotonPrimario: {
+      color: theme.blanco,
+      fontWeight: "700",
+      fontSize: 13,
+      marginLeft: 6,
+    },
+    botonSecundario: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: theme.blanco,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+      borderWidth: 1,
+      borderColor: theme.borde,
+    },
+    textoBotonSecundario: {
+      color: theme.texto,
+      fontWeight: "700",
+      fontSize: 13,
+      marginLeft: 6,
+    },
 
-  gridRow: { flexDirection: "row", gap: 16 },
-  gridColMain: { flex: 1.6 },
-  gridColSide: { flex: 1 },
-  gridColFull: { flex: undefined, width: "100%", marginTop: 16 },
+    gridRow: { flexDirection: "row", gap: 16 },
+    gridColMain: { flex: 1.6 },
+    gridColSide: { flex: 1 },
+    gridColFull: { flex: undefined, width: "100%", marginTop: 16 },
 
-  cardContainer: {
-    borderRadius: 20,
-    padding: 18,
-    // "CC" = ~80% de opacidad, misma idea que profileHeaderCard: se ve la
-    // imagen de fondo detrás de la tarjeta en lugar de un blanco sólido.
-    backgroundColor: theme.blanco + "CC",
-    borderWidth: 1,
-    borderColor: theme.borde,
-  },
-  labelSeccion: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  textoLabelSeccion: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: theme.morado,
-    letterSpacing: 1.2,
-  },
+    cardContainer: {
+      borderRadius: 20,
+      padding: 18,
+      // "CC" = ~80% de opacidad, misma idea que profileHeaderCard: se ve la
+      // imagen de fondo detrás de la tarjeta en lugar de un blanco sólido.
+      backgroundColor: theme.blanco + "CC",
+      borderWidth: 1,
+      borderColor: theme.borde,
+    },
+    labelSeccion: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    textoLabelSeccion: {
+      fontSize: 10,
+      fontWeight: "bold",
+      color: theme.morado,
+      letterSpacing: 1.2,
+    },
 
-  datosGrid: { flexDirection: "row", flexWrap: "wrap" },
-  campoContainer: { paddingVertical: 10, width: "50%", paddingRight: 10 },
-  campoEtiqueta: {
-    fontSize: 10,
-    color: theme.textoTerciario,
-    fontWeight: "600",
-    letterSpacing: 0.6,
-  },
-  campoValor: { fontSize: 14, fontWeight: "700" },
+    datosGrid: { flexDirection: "row", flexWrap: "wrap" },
+    campoContainer: { paddingVertical: 10, width: "50%", paddingRight: 10 },
+    campoEtiqueta: {
+      fontSize: 10,
+      color: theme.textoTerciario,
+      fontWeight: "600",
+      letterSpacing: 0.6,
+    },
+    campoValor: { fontSize: 14, fontWeight: "700" },
 
-  carreraIconContainer: {
-    width: 44,
-    height: 44,
-    backgroundColor: theme.tealFondo,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  carreraNombre: { color: theme.morado, fontSize: 15, fontWeight: "800" },
+    carreraIconContainer: {
+      width: 44,
+      height: 44,
+      backgroundColor: theme.tealFondo,
+      borderRadius: 12,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    carreraNombre: { color: theme.morado, fontSize: 15, fontWeight: "800" },
 
-  examenStatusBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    width: "100%",
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  examenIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  examenStatusTitle: { fontWeight: "bold", fontSize: 14 },
-  examenStatusDesc: {
-    fontSize: 12,
-    color: theme.textoSecundario,
-    lineHeight: 17,
-  },
-  botonExamen: {
-    height: 52,
-    borderRadius: 14,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+    examenStatusBox: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      width: "100%",
+      padding: 16,
+      borderRadius: 14,
+      borderWidth: 1,
+    },
+    examenIconContainer: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    examenStatusTitle: { fontWeight: "bold", fontSize: 14 },
+    examenStatusDesc: {
+      fontSize: 12,
+      color: theme.textoSecundario,
+      lineHeight: 17,
+    },
+    botonExamen: {
+      height: 52,
+      borderRadius: 14,
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+    },
 
-  botonGuia: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 11,
-    backgroundColor: theme.morado,
-    borderRadius: 12,
-  },
-  textoBotonGuia: {
-    fontSize: 13,
-    color: theme.blanco,
-    fontWeight: "700",
-    marginLeft: 6,
-  },
+    botonGuia: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 11,
+      backgroundColor: theme.morado,
+      borderRadius: 12,
+    },
+    textoBotonGuia: {
+      fontSize: 13,
+      color: theme.blanco,
+      fontWeight: "700",
+      marginLeft: 6,
+    },
 
-  materialItem: {
-    backgroundColor: theme.moradoFondo + "55",
-    borderRadius: 12,
-    padding: 10,
-  },
-  materialImagenPreview: {
-    width: "100%",
-    height: 140,
-    borderRadius: 10,
-    marginTop: 10,
-    backgroundColor: "#00000010",
-  },
-  botonVerMaterial: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: theme.morado,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    materialItem: {
+      backgroundColor: theme.moradoFondo + "55",
+      borderRadius: 12,
+      padding: 10,
+    },
+    materialImagenPreview: {
+      width: "100%",
+      height: 140,
+      borderRadius: 10,
+      marginTop: 10,
+      backgroundColor: "#00000010",
+    },
+    botonVerMaterial: {
+      width: 30,
+      height: 30,
+      borderRadius: 8,
+      backgroundColor: theme.morado,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  procesoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-  },
+    procesoRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingVertical: 8,
+    },
 
-  botonCerrarSesion: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
-    padding: 8,
-  },
-  textoCerrarSesion: { color: theme.gris, fontSize: 12, marginLeft: 6 },
+    botonCerrarSesion: {
+      flexDirection: "row",
+      alignItems: "center",
+      alignSelf: "center",
+      padding: 8,
+    },
+    textoCerrarSesion: { color: theme.gris, fontSize: 12, marginLeft: 6 },
 
-  scoreText: { fontSize: 34, fontWeight: "800" },
-  scoreLabel: { fontSize: 11, color: theme.textoTerciario },
-  scoreMessage: { fontSize: 13, fontWeight: "bold", textAlign: "center" },
-  aciertosText: { fontSize: 12, color: theme.textoSecundario },
-  statMiniContainer: {
-    flex: 1,
-    paddingVertical: 12,
-    backgroundColor: theme.fondoSuave,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.borde,
-    alignItems: "center",
-  },
-  statMiniValor: { fontSize: 20, fontWeight: "800" },
-  statMiniEtiqueta: { fontSize: 10, color: theme.textoSecundario },
+    scoreText: { fontSize: 34, fontWeight: "800" },
+    scoreLabel: { fontSize: 11, color: theme.textoTerciario },
+    scoreMessage: { fontSize: 13, fontWeight: "bold", textAlign: "center" },
+    aciertosText: { fontSize: 12, color: theme.textoSecundario },
+    statMiniContainer: {
+      flex: 1,
+      paddingVertical: 12,
+      backgroundColor: theme.fondoSuave,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.borde,
+      alignItems: "center",
+    },
+    statMiniValor: { fontSize: 20, fontWeight: "800" },
+    statMiniEtiqueta: { fontSize: 10, color: theme.textoSecundario },
 
-  drawerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15,13,23,0.55)",
-    flexDirection: "row",
-  },
-  drawerPanel: {
-    width: 270,
-    height: "100%",
-    backgroundColor: theme.sidebarBg,
-    paddingTop: 24,
-    paddingHorizontal: 12,
-    paddingBottom: 20,
-  },
+    drawerBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(15,13,23,0.55)",
+      flexDirection: "row",
+    },
+    drawerPanel: {
+      width: 270,
+      height: "100%",
+      backgroundColor: theme.sidebarBg,
+      paddingTop: 24,
+      paddingHorizontal: 12,
+      paddingBottom: 20,
+    },
 
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(23,19,31,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  modalContainer: {
-    borderRadius: 24,
-    backgroundColor: theme.blanco,
-    padding: 22,
-    width: "100%",
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: theme.borde,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  modalTitle: { fontWeight: "bold", fontSize: 16, color: theme.texto },
-  modalSubtitle: {
-    fontSize: 12,
-    color: theme.textoSecundario,
-    marginTop: 4,
-    textAlign: "center",
-  },
-  ayudaOpcion: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 13,
-  },
-  ayudaOpcionTexto: {
-    flex: 1,
-    fontSize: 13.5,
-    fontWeight: "600",
-    color: theme.texto,
-  },
-  ayudaSeparador: { height: 1, backgroundColor: theme.borde },
-  manualBox: {
-    backgroundColor: theme.moradoFondo,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 4,
-    marginBottom: 6,
-    gap: 8,
-  },
-  manualItem: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: theme.texto,
-  },
-  manualNegrita: { fontWeight: "700" },
-  modalInputLabel: {
-    fontSize: 10,
-    fontWeight: "bold",
-    letterSpacing: 0.6,
-    color: theme.textoTerciario,
-  },
-  modalInput: {
-    color: theme.texto,
-    fontSize: 14,
-    backgroundColor: theme.fondoSuave,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.borde,
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  modalButtonCancel: { borderWidth: 1, borderColor: theme.borde },
-  modalButtonSave: { backgroundColor: theme.morado },
-  qrCodeWrapper: {
-    padding: 12,
-    backgroundColor: theme.blanco,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.borde,
-    alignSelf: "center",
-  },
-  qrFolio: {
-    fontWeight: "bold",
-    fontSize: 15,
-    letterSpacing: 1.4,
-    color: theme.morado,
-  },
-  qrNombre: { fontSize: 13, color: theme.textoSecundario, textAlign: "center" },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(23,19,31,0.55)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    modalContainer: {
+      borderRadius: 24,
+      backgroundColor: theme.blanco,
+      padding: 22,
+      width: "100%",
+      maxWidth: 400,
+      borderWidth: 1,
+      borderColor: theme.borde,
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    modalTitle: { fontWeight: "bold", fontSize: 16, color: theme.texto },
+    modalSubtitle: {
+      fontSize: 12,
+      color: theme.textoSecundario,
+      marginTop: 4,
+      textAlign: "center",
+    },
+    ayudaOpcion: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 13,
+    },
+    ayudaOpcionTexto: {
+      flex: 1,
+      fontSize: 13.5,
+      fontWeight: "600",
+      color: theme.texto,
+    },
+    ayudaSeparador: { height: 1, backgroundColor: theme.borde },
+    manualBox: {
+      backgroundColor: theme.moradoFondo,
+      borderRadius: 12,
+      padding: 12,
+      marginTop: 4,
+      marginBottom: 6,
+      gap: 8,
+    },
+    manualItem: {
+      fontSize: 12,
+      lineHeight: 17,
+      color: theme.texto,
+    },
+    manualNegrita: { fontWeight: "700" },
+    modalInputLabel: {
+      fontSize: 10,
+      fontWeight: "bold",
+      letterSpacing: 0.6,
+      color: theme.textoTerciario,
+    },
+    modalInput: {
+      color: theme.texto,
+      fontSize: 14,
+      backgroundColor: theme.fondoSuave,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.borde,
+    },
+    modalButton: {
+      flex: 1,
+      paddingVertical: 13,
+      borderRadius: 12,
+      alignItems: "center",
+    },
+    modalButtonCancel: { borderWidth: 1, borderColor: theme.borde },
+    modalButtonSave: { backgroundColor: theme.morado },
+    qrCodeWrapper: {
+      padding: 12,
+      backgroundColor: theme.blanco,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.borde,
+      alignSelf: "center",
+    },
+    qrFolio: {
+      fontWeight: "bold",
+      fontSize: 15,
+      letterSpacing: 1.4,
+      color: theme.morado,
+    },
+    qrNombre: {
+      fontSize: 13,
+      color: theme.textoSecundario,
+      textAlign: "center",
+    },
 
-  // Cronograma
-  actividadRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 14,
-  },
-  actividadTimeline: { alignItems: "center", marginRight: 12 },
-  actividadDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: theme.blanco,
-  },
-  actividadLine: { flex: 1, width: 2, backgroundColor: theme.borde },
-  actividadContent: { flex: 1, paddingTop: 0 },
-  actividadTitulo: { fontSize: 13, fontWeight: "700", color: theme.texto },
-  actividadFecha: { fontSize: 11, color: theme.textoSecundario, marginTop: 2 },
-  actividadDescripcion: {
-    fontSize: 12,
-    color: theme.textoSecundario,
-    marginTop: 4,
-  },
-  actividadIconoCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  actividadTituloRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  actividadBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  actividadBadgeTexto: { fontSize: 9.5, fontWeight: "700" },
+    botonDescargarComprobante: {
+      width: "100%",
+      height: 50,
+      borderRadius: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      shadowColor: theme.morado,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.28,
+      shadowRadius: 10,
+      elevation: 4,
+    },
+    textoBotonDescargarComprobante: {
+      color: theme.blanco,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+
+    botonCompartirResultado: {
+      width: "100%",
+      height: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+    },
+    textoBotonCompartirResultado: {
+      fontSize: 13,
+      fontWeight: "700",
+    },
+
+    // Cronograma
+    actividadRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      marginBottom: 14,
+    },
+    actividadTimeline: { alignItems: "center", marginRight: 12 },
+    actividadDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: theme.blanco,
+    },
+    actividadLine: { flex: 1, width: 2, backgroundColor: theme.borde },
+    actividadContent: { flex: 1, paddingTop: 0 },
+    actividadTitulo: { fontSize: 13, fontWeight: "700", color: theme.texto },
+    actividadFecha: {
+      fontSize: 11,
+      color: theme.textoSecundario,
+      marginTop: 2,
+    },
+    actividadDescripcion: {
+      fontSize: 12,
+      color: theme.textoSecundario,
+      marginTop: 4,
+    },
+    actividadIconoCircle: {
+      width: 26,
+      height: 26,
+      borderRadius: 9,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 4,
+    },
+    actividadTituloRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    actividadBadge: {
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 999,
+    },
+    actividadBadgeTexto: { fontSize: 9.5, fontWeight: "700" },
   });
 }
 
