@@ -1,24 +1,24 @@
+import { avisar, useConfirm } from "@/components/ConfirmDialog";
 import { ColoresApp } from "@/constants/coloresApp";
 import {
-    actualizarCarrera,
-    agregarCarrera,
-    eliminarCarrera,
-    obtenerCarreras,
+  actualizarCarrera,
+  agregarCarrera,
+  eliminarCarrera,
+  obtenerCarreras,
 } from "@/services/carrerasServicio";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Pressable,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 type Carrera = {
@@ -29,6 +29,7 @@ type Carrera = {
 
 export default function GestionarCarrerasScreen() {
   const router = useRouter();
+  const confirmar = useConfirm();
   const [carreras, setCarreras] = useState<Carrera[]>([]);
   const [cargando, setCargando] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -42,14 +43,41 @@ export default function GestionarCarrerasScreen() {
       const data = await obtenerCarreras();
       setCarreras(data as Carrera[]);
     } catch {
-      Alert.alert("Error", "No se pudieron cargar las carreras.");
+      avisar("Error", "No se pudieron cargar las carreras.");
     } finally {
       setCargando(false);
     }
   };
 
   useEffect(() => {
-    cargar();
+    let activo = true;
+
+    const cargarDatos = async () => {
+      if (!activo) return;
+
+      setCargando(true);
+
+      try {
+        const data = await obtenerCarreras();
+        if (activo) {
+          setCarreras(data as Carrera[]);
+        }
+      } catch {
+        if (activo) {
+          avisar("Error", "No se pudieron cargar las carreras.");
+        }
+      } finally {
+        if (activo) {
+          setCargando(false);
+        }
+      }
+    };
+
+    void cargarDatos();
+
+    return () => {
+      activo = false;
+    };
   }, []);
 
   const abrirModalNueva = () => {
@@ -78,7 +106,7 @@ export default function GestionarCarrerasScreen() {
     const tipoTrim = tipo.trim();
 
     if (!nombreTrim) {
-      Alert.alert("Falta información", "Escribe el nombre de la carrera.");
+      avisar("Falta información", "Escribe el nombre de la carrera.");
       return;
     }
 
@@ -90,7 +118,7 @@ export default function GestionarCarrerasScreen() {
           tipoTrim || "General",
         );
         if (!ok) {
-          Alert.alert(
+          avisar(
             "No se pudo editar",
             "La carrera no se pudo actualizar. Revisa permisos de Supabase o si la fila está bloqueada por otra relación.",
           );
@@ -99,7 +127,7 @@ export default function GestionarCarrerasScreen() {
       } else {
         const creada = await agregarCarrera(nombreTrim, tipoTrim || "General");
         if (!creada) {
-          Alert.alert("Error", "No se pudo crear la carrera.");
+          avisar("Error", "No se pudo crear la carrera.");
           return;
         }
       }
@@ -107,33 +135,28 @@ export default function GestionarCarrerasScreen() {
       await cargar();
       cerrarModal();
     } catch {
-      Alert.alert("Error", "Ocurrió un problema al guardar la carrera.");
+      avisar("Error", "Ocurrió un problema al guardar la carrera.");
     }
   };
 
-  const handleEliminar = async (id: number) => {
-    Alert.alert(
-      "Eliminar carrera",
-      "¿Deseas eliminar esta carrera del sistema?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            const ok = await eliminarCarrera(id);
-            if (!ok) {
-              Alert.alert(
-                "No se puede eliminar",
-                "La carrera está en uso o la base de datos la bloquea por políticas de seguridad. Revisa si está asociada a aspirantes, materiales o exámenes.",
-              );
-              return;
-            }
-            await cargar();
-          },
-        },
-      ],
-    );
+  const handleEliminar = (id: number) => {
+    confirmar({
+      titulo: "Eliminar carrera",
+      mensaje: "¿Deseas eliminar esta carrera del sistema?",
+      textoConfirmar: "Eliminar",
+      destructivo: true,
+      onConfirmar: async () => {
+        const ok = await eliminarCarrera(id);
+        if (!ok) {
+          avisar(
+            "No se puede eliminar",
+            "La carrera está en uso o la base de datos la bloquea por políticas de seguridad. Revisa si está asociada a aspirantes, materiales o exámenes.",
+          );
+          return;
+        }
+        await cargar();
+      },
+    });
   };
 
   return (
@@ -141,7 +164,12 @@ export default function GestionarCarrerasScreen() {
       <Stack.Screen options={{ title: "Carreras y programas" }} />
 
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
+        <Pressable
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/panel")
+          }
+          style={styles.backButton}
+        >
           <Ionicons name="arrow-back" size={20} color={ColoresApp.primario} />
         </Pressable>
         <Text style={styles.title}>Carreras y programas</Text>

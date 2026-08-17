@@ -55,3 +55,6 @@ Write-Host $zipSalida
 
 correwr  .\backup-codigo.ps1
  eores solucion Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+
+
