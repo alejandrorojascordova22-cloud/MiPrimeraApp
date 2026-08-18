@@ -897,7 +897,7 @@ export default function PantallaAparienciaSistema() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: ColoresApp.fondo },
+  container: { flex: 1, backgroundColor: "transparent" },
   scrollContent: { paddingVertical: 20, paddingHorizontal: 20 },
   contentWrapper: {
     maxWidth: 640,

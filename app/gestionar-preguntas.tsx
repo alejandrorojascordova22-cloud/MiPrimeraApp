@@ -2354,7 +2354,7 @@ export default function GestionarPreguntasScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: ACCENT.fondo,
+    backgroundColor: "transparent",
   },
   headerContainer: {
     padding: 20,

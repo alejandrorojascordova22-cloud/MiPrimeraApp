@@ -130,12 +130,14 @@ const ItemMaterial = ({ material }: { material: Record<string, any> }) => {
       </View>
 
       {tipo === "imagen" && !previewError && (
-        <Image
-          source={{ uri: url }}
-          style={styles.materialImagenPreview}
-          resizeMode="cover"
-          onError={() => setPreviewError(true)}
-        />
+        <View style={styles.materialImagenPreviewContainer}>
+          <Image
+            source={{ uri: url }}
+            style={styles.materialImagenPreview}
+            resizeMode="cover"
+            onError={() => setPreviewError(true)}
+          />
+        </View>
       )}
 
       {verEnPantalla && puedeVerEnPantalla && (
@@ -263,14 +265,14 @@ export default function DocumentosAspiranteScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: ColoresApp.fondo },
+  container: { flex: 1, backgroundColor: "transparent" },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: "white",
+    backgroundColor: "rgba(255,255,255,0.9)",
     borderBottomWidth: 1,
     borderBottomColor: ColoresApp.borde,
   },
@@ -293,6 +295,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ColoresApp.borde,
     padding: 14,
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOpacity: 0.03,
     shadowRadius: 6,
@@ -358,11 +361,16 @@ const styles = StyleSheet.create({
   textoBotonVerMaterialActivo: {
     color: "white",
   },
-  materialImagenPreview: {
+  materialImagenPreviewContainer: {
     width: "100%",
     height: 150,
-    borderRadius: 12,
     marginTop: 10,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  materialImagenPreview: {
+    width: "100%",
+    height: "100%",
   },
   visorContainer: {
     marginTop: 12,

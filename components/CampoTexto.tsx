@@ -68,9 +68,12 @@ const styles = StyleSheet.create({
   contenedor: { marginBottom: 16 },
   etiqueta: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: ColoresApp.texto,
     marginBottom: 6,
+    textShadowColor: 'rgba(255,255,255,0.9)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
   },
   inputRow: {
     flexDirection: 'row',

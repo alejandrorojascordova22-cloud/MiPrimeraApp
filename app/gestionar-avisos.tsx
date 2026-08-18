@@ -478,7 +478,7 @@ export default function GestionarAvisosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: ColoresApp.fondo },
+  container: { flex: 1, backgroundColor: "transparent" },
   topBar: {
     paddingHorizontal: 16,
     paddingVertical: 14,

@@ -959,7 +959,7 @@ export default function GestionarMaterialesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: ColoresApp.fondo,
+    backgroundColor: "transparent",
   },
   topBar: {
     paddingHorizontal: 16,

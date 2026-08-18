@@ -1143,7 +1143,7 @@ const BotonesNavegacion = ({
 // --- ESTILOS ---
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EEF1F8" },
+  container: { flex: 1, backgroundColor: "transparent" },
   overlayOculto: {
     position: "absolute",
     top: 0,

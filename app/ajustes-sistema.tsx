@@ -267,20 +267,6 @@ export default function PantallaAjustesSistema() {
             />
           </SettingsCard>
 
-          {/* Academic Card */}
-          <SettingsCard
-            title="Académico"
-            icon="school-outline"
-            color={ColoresApp.primario}
-          >
-            <SettingsTile
-              title="Carreras y programas"
-              subtitle="Agregar, editar y organizar las carreras del sistema"
-              icon="book-outline"
-              onTap={() => router.push("/gestionar-carreras")}
-            />
-          </SettingsCard>
-
           {/* Data Lifecycle Card */}
           <SettingsCard
             title="Periodos y archivos"
@@ -1488,7 +1474,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flexShrink: 1,
   },
-  container: { flex: 1, backgroundColor: ColoresApp.fondo },
+  container: { flex: 1, backgroundColor: "transparent" },
   scrollContent: { paddingVertical: 28, paddingHorizontal: 20 },
   contentWrapper: {
     maxWidth: 800,
